@@ -74,43 +74,52 @@ def analyse_image(image):
     # Increase threshold if result doesn't find line
     threshold = 140
     bcx, bcy = 0,0
-    while True:
-        try:
-            ret,btemplate = cv2.threshold(gray, threshold, 255, 0)
-            # Force edges to be white so they don't get picked
-            for i in range(rows):
-                for j in range(cols):
-                    if i <= 5 or i >= (rows - 5):
-                        btemplate[i][j] = 255
-                    if j <= 5 or j >= (cols - 5):
-                        btemplate[i][j] = 255
+    ret,btemplate = cv2.threshold(gray, threshold, 255, 0)
+    # Force edges to be white so they don't get picked
+    for i in range(rows):
+        for j in range(cols):
+            if i <= 5 or i >= (rows - 5):
+                btemplate[i][j] = 255
+            if j <= 5 or j >= (cols - 5):
+                btemplate[i][j] = 255
 
-            # Another morphological close to merge broken black-line parts
-            btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
+    # Another morphological close to merge broken black-line parts
+    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
 
-            contours, hierarchy = cv2.findContours(btemplate, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-            bcxlist = bcylist = 0
-            bcc = 0
-            for index in range(len(contours)):
-                cnt = contours[index]
-                if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 30000:
-                    x,y,w,h = cv2.boundingRect(cnt)
-                    if plot or disp:
-                        M = cv2.moments(cnt)
-                        cX = int(M["m10"] / M["m00"])
-                        cY = int(M["m01"] / M["m00"])
-                        # draw the contour and center of the shape on the image
-                        cv2.drawContours(contourimg, [cnt], -1, (79, 127, 247, 255), 2)
-                        cv2.circle(contourimg, (cX, cY), 7, (79, 127, 247, 255), -1)
-                        #cv2.rectangle(contourimg, (x, y), (x + w, y + h),(79, 127, 247, 255), 2)
-                    bcxlist += cX * (cX/rows)
-                    bcylist += cY * (cY/cols)
-                    bcc += 1
-            bcx, bcy = bcxlist // bcc, bcylist // bcc
-        except:
-            threshold += 10
-        else:
-              break
+    contours, hierarchy = cv2.findContours(btemplate, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    bcxlist = bcylist = 0
+    bcc = 0
+    nc = len(contours)
+    centers = []
+    weights = []
+    for index in range(len(contours)):
+        cnt = contours[index]
+        if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 30000:
+            x,y,w,h = cv2.boundingRect(cnt)
+            if plot or disp:
+                M = cv2.moments(cnt)
+                cX = int(M["m10"] / M["m00"])
+                cY = int(M["m01"] / M["m00"])
+                # draw the contour and center of the shape on the image
+                cv2.drawContours(contourimg, [cnt], -1, (79, 127, 247, 255), 2)
+                cv2.circle(contourimg, (cX, cY), 7, (79, 127, 247, 255), -1)
+                #cv2.rectangle(contourimg, (x, y), (x + w, y + h),(79, 127, 247, 255), 2)
+            centers.append([cY, cX])
+            weights.append(cY / rows)
+    try: 
+        weights.sort()
+        centers.sort()
+        k_weight = 1 / sum(weights)
+        modweights = [weights[i] * k_weight for i in range(len(weights))]
+        for i in range(len(centers)):
+            bcxlist += centers[i][1] * modweights[i]
+            bcylist += centers[i][0] * modweights[i]
+            bcc += 1
+        bcx, bcy = bcxlist // bcc, bcylist // bcc
+    except: bcx, bcy = rows // 2, cols // 2
+    for y_change in range(-4, 5):
+        for x_change in range(-4, 5):
+            contourimg[int(bcy + y_change)][int(bcx + x_change)] = [255, 0, 0, 255]
     # Draw the black-line centroid as a blue point in mod
     if plot:
         decision = "Decision: Follow blue dot"
