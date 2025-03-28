@@ -18,14 +18,24 @@ preview_config = picam2.create_preview_configuration(
 )
 picam2.configure(preview_config)
 
-# Set camera controls if needed (example commented out)
-# picam2.set_controls({
-#     "AwbEnable": False,
-#     "AnalogueGain": 5.0,
-#     "ExposureTime": 1000000
-# })
+# ---------------------------
+# Key changes for glare fix:
+#   Disable auto white balance
+#   Set explicit exposure time
+#   Set lower analogue gain
+#   (Adjust as needed for environment)
+# ---------------------------
+#picam2.set_controls({
+#    "AwbEnable": False,
+#    "AnalogueGain": 5.0,      # Lower gain
+#    "ExposureTime": 1000000   # Example exposure in microseconds
+#})
 
 picam2.start(show_preview=True)
+
+plot = True
+disp = True
+home = os.environ["HOME"]
 
 # PID config
 kp = 1
@@ -33,117 +43,153 @@ ki = 0
 kd = 0
 error_sum = 0
 prev_error = 0
-kr = 0.25  # original cropping factor for top offset
+kr = 0.25
 prev_time = time.time()
 
 def analyse_image(image):
-    # Adjust image contrast to reduce glare effects
+    # Adjust contrast to reduce glare
     imagetemp = cv2.convertScaleAbs(image, alpha=1.5, beta=0.1)
-    # --- Adjust ROI to bottom section for immediate control ---
-    # For example, select the bottom 50% of the image:
-    height = imagetemp.shape[0]
-    roi = imagetemp[int(height*0.5):, :]
-    
-    # Convert ROI to grayscale and apply morphological opening to remove noise
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    cv2.imshow('test', imagetemp)
+    img = imagetemp[int(kr * imagetemp.shape[0]):]
+    rows, cols, _ = img.shape
+
     kernel = np.ones((3, 3), np.uint8)
+
+    if plot or disp:
+        mod = img.copy()       # Final analysed image for showing
+        contourimg = img.copy() # Image showing all contours
+
+    # Convert to grayscale and remove noise with morphological open
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
-    
-    # --- Thresholding to obtain binary image of the line ---
-    threshold_value = 140  # adjust as needed
-    ret, binary = cv2.threshold(gray, threshold_value, 255, cv2.THRESH_BINARY_INV)
-    
-    # --- Slice-Based Centroid Calculation ---
-    num_slices = 5  # divide ROI into 5 horizontal slices
-    slice_height = binary.shape[0] // num_slices
-    slice_centroids = []
+
+    # Thresholding to obtain binary image of the line
+    threshold = 140
+    ret, btemplate = cv2.threshold(gray, threshold, 255, 0)
+    # Force edges to be white so they aren't picked up as part of the line
+    for i in range(rows):
+        for j in range(cols):
+            if i <= 5 or i >= (rows - 5):
+                btemplate[i][j] = 255
+            if j <= 5 or j >= (cols - 5):
+                btemplate[i][j] = 255
+
+    # Merge broken black-line parts with morphological close
+    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
+
+    contours, hierarchy = cv2.findContours(btemplate, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    bcxlist = bcylist = 0
+    bcc = 0
+    centers = []
     weights = []
-    
-    for i in range(num_slices):
-        # Define slice: from bottom slice (i=0) upward (i=num_slices-1)
-        y_start = binary.shape[0] - (i+1)*slice_height
-        y_end = binary.shape[0] - i*slice_height
-        slice_img = binary[y_start:y_end, :]
-        
-        # Calculate moments for each slice
-        M = cv2.moments(slice_img)
-        if M['m00'] != 0:
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"]) + y_start  # offset with ROI position
-            slice_centroids.append((cx, cy))
-            # Weight: slices nearer bottom (lower y) get higher weight
-            weight = (i+1)  # or use an inverse function if desired
-            weights.append(weight)
-        else:
-            # In case no line is detected in this slice, use center of slice
-            cx = binary.shape[1] // 2
-            cy = (y_start + y_end) // 2
-            slice_centroids.append((cx, cy))
-            weights.append(1)
-    
-    # Compute weighted average centroid from slices
-    weighted_sum_x = sum(cx * w for (cx, _), w in zip(slice_centroids, weights))
-    total_weight = sum(weights)
-    global_cx = int(weighted_sum_x / total_weight)
-    
-    # --- Polynomial Curve Fitting ---
-    # Use detected centroids as points for fitting a second order polynomial.
-    if len(slice_centroids) >= 3:
-        # y-coordinates become independent variable
-        pts = np.array(slice_centroids)
-        xs = pts[:,0]
-        ys = pts[:,1]
-        # Fit polynomial: x = a*y^2 + b*y + c
+    # Collect centres of contours that fall within area limits
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if 100 < area < 30000:
+            if plot or disp:
+                M = cv2.moments(cnt)
+                if M["m00"] != 0:
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
+                    cv2.drawContours(contourimg, [cnt], -1, (79, 127, 247, 255), 2)
+                    cv2.circle(contourimg, (cX, cY), 7, (79, 127, 247, 255), -1)
+            # Append centre as [y, x] for polynomial fit (y is independent variable)
+            centers.append([int(M["m01"] / M["m00"]), int(M["m10"] / M["m00"])])
+            weights.append((int(M["m01"] / M["m00"])) / rows)
+
+    try:
+        # Compute weighted average for a global centroid (fallback)
+        weights.sort()
+        centers.sort()
+        k_weight = 1 / sum(weights)
+        modweights = [w * k_weight for w in weights]
+        for i in range(len(centers)):
+            bcxlist += centers[i][1] * modweights[i]
+            bcylist += centers[i][0] * modweights[i]
+            bcc += 1
+        bcx, bcy = bcxlist // bcc, bcylist // bcc
+    except:
+        bcx, bcy = cols // 2, rows // 2
+
+    # Draw small blue square around the global centroid
+    for y_change in range(-4, 5):
+        for x_change in range(-4, 5):
+            contourimg[min(max(bcy + y_change, 0), rows-1)][min(max(bcx + x_change, 0), cols-1)] = [255, 0, 0, 255]
+
+    # POLYNOMAIL
+    # Use centres if at least three points are available
+    if len(centers) >= 3:
+        pts = np.array(centers)
+        # Sort points by y-coordinate 
+        pts = pts[pts[:, 0].argsort()]
+        ys = pts[:, 0]
+        xs = pts[:, 1]
+        # x = a*y^2 + b*y + c
         poly_coeff = np.polyfit(ys, xs, 2)
         poly = np.poly1d(poly_coeff)
-        # Choose a target point at a future y-position in ROI (e.g. near bottom)
-        target_y = binary.shape[0] - 1 + int(height*0.5)  # adjust as necessary
+        # Select target at the bottom of the image
+        target_y = rows - 1
         target_x = int(poly(target_y))
+        # Draw target point in red on contour image
+        cv2.circle(contourimg, (target_x, target_y), 5, (0, 0, 255), -1)
     else:
-        # Fallback if not enough points
-        target_x = global_cx
-        target_y = roi.shape[0] - 1 + int(height*0.5)
-    
-    # --- Display for debugging ---
-    contour_img = roi.copy()
-    for (cx, cy) in slice_centroids:
-        cv2.circle(contour_img, (cx, cy - int(height*0.5)), 3, (0, 255, 0), -1)
-    # Mark global weighted centroid in blue
-    cv2.circle(contour_img, (global_cx, binary.shape[0] - 1), 5, (255, 0, 0), -1)
-    # Mark target point from polynomial fit in red
-    cv2.circle(contour_img, (target_x, target_y - int(height*0.5)), 5, (0, 0, 255), -1)
-    cv2.imshow("Analysis", contour_img)
-    
-    # Return target point (from polynomial fit) and other data as needed
-    return (target_x, target_y), roi.shape[0], binary.shape[1]
+        target_x, target_y = bcx, bcy
 
+    if plot:
+        plt.figure(figsize=(20, 5))
+        plt.subplot(1, 5, 1)
+        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        plt.title('Original Image')
+
+        plt.subplot(1, 5, 2)
+        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        plt.title('Contrast & Morph Fix')
+
+        plt.subplot(1, 5, 3)
+        plt.imshow(cv2.cvtColor(btemplate, cv2.COLOR_BGR2RGB))
+        plt.title('Binary Image')
+
+        plt.subplot(1, 5, 4)
+        plt.imshow(cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
+        plt.title('Contours Image')
+
+        plt.subplot(1, 5, 5)
+        plt.imshow(cv2.cvtColor(mod, cv2.COLOR_BGR2RGB))
+        plt.title('Analysed')
+        plt.show()
+    cv2.imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
+    
+    # Return the target point from polynomial fit and image dimensions for PID control
+    return [target_x, target_y], rows, cols
+
+plot = False
 while True:
     st = time.time()
     dt = st - prev_time
-    # Capture image array from Picamera2
-    frame = picam2.capture_array()
-    centroid, rows, cols = analyse_image(frame)
+    centroid, rows, cols = analyse_image(picam2.capture_array())
 
-    # Debug print frame rate
     print(f"FPS: {1 / (time.time() - st)}")
 
-    # Use the x-coordinate of the target point for error calculation
-    error_x = centroid[0] - (cols / 2)
-    d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
-    u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
-    prev_error = error_x
-    prev_time = st
+    if centroid[0] == -1:
+        print("U-turn")
+        # Implement U-turn logic here
+    else:
+        print(centroid)
+        # Use x-coordinate of target point for error calculation
+        error_x = centroid[0] - (cols / 2)
+        d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
+        u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
+        prev_error = error_x
+        prev_time = st
 
-    base_speed = 150
-    motor_right_speed = base_speed - u
-    motor_left_speed = base_speed + u
+        base_speed = 150
+        motor_right_speed = base_speed - u
+        motor_left_speed = base_speed + u
 
-    motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
-    motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
-    ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
+        motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
+        motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
+        ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if plot:
         break
     time.sleep(0.1)
-
-cv2.destroyAllWindows()
