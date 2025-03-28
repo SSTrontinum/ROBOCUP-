@@ -50,8 +50,9 @@ def analyse_image(image):
     # Convert to grayscale, slight brightness shift if needed
     #   Adjust alpha, beta to taste
     #   Higher alpha -> stronger contrast, changed to reduce glare washout
-    #img = cv2.convertScaleAbs(image, alpha=1.0, beta=0.1)
-    img = image[int(kr*image.shape[0]):]
+    imagetemp = cv2.convertScaleAbs(image, alpha=1.5, beta=0.1)
+    cv2.imshow('test', imagetemp)
+    img = imagetemp[int(kr*imagetemp.shape[0]):]
     rows, cols, _ = img.shape
 
     # Additional morphological steps to remove small bright specks
@@ -71,16 +72,17 @@ def analyse_image(image):
 
     # Attempt a threshold that deals with partial glare
     # Increase threshold if result doesn't find line
-    threshold = 100
+    threshold = 140
+    bcx, bcy = 0,0
     while True:
         try:
             ret,btemplate = cv2.threshold(gray, threshold, 255, 0)
             # Force edges to be white so they don't get picked
             for i in range(rows):
                 for j in range(cols):
-                    if i <= 10 or i >= (rows - 10):
+                    if i <= 5 or i >= (rows - 5):
                         btemplate[i][j] = 255
-                    if j <= 10 or j >= (cols - 10):
+                    if j <= 5 or j >= (cols - 5):
                         btemplate[i][j] = 255
 
             # Another morphological close to merge broken black-line parts
@@ -93,51 +95,48 @@ def analyse_image(image):
                 cnt = contours[index]
                 if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 30000:
                     x,y,w,h = cv2.boundingRect(cnt)
-                    if x <= int(0.75 * rows):
-                        if plot or disp:
-                            M = cv2.moments(cnt)
-                            cX = int(M["m10"] / M["m00"])
-                            cY = int(M["m01"] / M["m00"])
-                            # draw the contour and center of the shape on the image
-                            cv2.drawContours(contourimage, [c], -1, (79, 127, 247, 255), 2)
-                            cv2.circle(contourimage, (cX, cY), 7, (79, 127, 247, 255), -1)
-                            #cv2.rectangle(contourimg, (x, y), (x + w, y + h),(79, 127, 247, 255), 2)
-                        bcxlist += cX * (cX/rows)
-                        bcylist += cY * (cY/cols)
-                        bcc += 1
+                    if plot or disp:
+                        M = cv2.moments(cnt)
+                        cX = int(M["m10"] / M["m00"])
+                        cY = int(M["m01"] / M["m00"])
+                        # draw the contour and center of the shape on the image
+                        cv2.drawContours(contourimg, [cnt], -1, (79, 127, 247, 255), 2)
+                        cv2.circle(contourimg, (cX, cY), 7, (79, 127, 247, 255), -1)
+                        #cv2.rectangle(contourimg, (x, y), (x + w, y + h),(79, 127, 247, 255), 2)
+                    bcxlist += cX * (cX/rows)
+                    bcylist += cY * (cY/cols)
+                    bcc += 1
             bcx, bcy = bcxlist // bcc, bcylist // bcc
         except:
             threshold += 10
         else:
-            break
-
+              break
     # Draw the black-line centroid as a blue point in mod
-        if plot:
-            decision = "Decision: Follow blue dot"
-            plt.figure(figsize=(20, 5))
-            plt.subplot(1, 5, 1)
-            plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            plt.title('Original Image')
+    if plot:
+        decision = "Decision: Follow blue dot"
+        plt.figure(figsize=(20, 5))
+        plt.subplot(1, 5, 1)
+        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        plt.title('Original Image')
 
-            plt.subplot(1, 5, 2)
-            plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            plt.title('Contrast & Morph Fix')
+        plt.subplot(1, 5, 2)
+        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        plt.title('Contrast & Morph Fix')
 
-            plt.subplot(1, 5, 3)
-            plt.imshow(cv2.cvtColor(btemplate, cv2.COLOR_BGR2RGB))
-            plt.title('Binary Image')
+        plt.subplot(1, 5, 3)
+        plt.imshow(cv2.cvtColor(btemplate, cv2.COLOR_BGR2RGB))
+        plt.title('Binary Image')
 
-            plt.subplot(1, 5, 4)
-            plt.imshow(cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
-            plt.title('Contours Image')
+        plt.subplot(1, 5, 4)
+        plt.imshow(cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
+        plt.title('Contours Image')
 
-            plt.subplot(1, 5, 5)
-            plt.imshow(cv2.cvtColor(mod, cv2.COLOR_BGR2RGB))
-            plt.title('Analysed')
-            plt.show()
-
-        cv2.imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
-        return [bcx, bcy], rows, cols
+        plt.subplot(1, 5, 5)
+        plt.imshow(cv2.cvtColor(mod, cv2.COLOR_BGR2RGB))
+        plt.title('Analysed')
+        plt.show()
+    cv2.imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
+    return [bcx, bcy], rows, cols
 
 
 plot = False
