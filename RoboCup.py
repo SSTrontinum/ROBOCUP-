@@ -138,13 +138,13 @@ def analyse_image(image):
 
         plt.subplot(1, 5, 4)
         plt.imshow(cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
-        plt.title('Contours Image')
+        plt.title('Contours Image')s
 
         plt.subplot(1, 5, 5)
         plt.imshow(cv2.cvtColor(mod, cv2.COLOR_BGR2RGB))
         plt.title('Analysed')
         plt.show()
-    cv2.imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
+    cv2.imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2HSV))
     return [bcx, bcy], rows, cols
 
 
@@ -162,6 +162,7 @@ while True:
         pass
     else:
         print(centroid)
+        """
         # Additional PID logic may be placed here.
         error_x = centroid[0] - (cols/2)
         d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
@@ -176,7 +177,7 @@ while True:
         motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
         motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
         ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
-
+        """
     if plot:
         break
     time.sleep(0.1)
