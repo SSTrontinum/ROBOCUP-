@@ -50,7 +50,7 @@ print("Timing %d ms" % (timing/1000))
 front_distances = []
 right_distances = []
 left_distances = []
-ferror, rerror, lerror = 38, 54, 50
+ferror, rerror, lerror = 36, 52, 51
 try:
     for count in range(1, 100):
         # Get distance from VL53L0X on PCA9548A bus 0
