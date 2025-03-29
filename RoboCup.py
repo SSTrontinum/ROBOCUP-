@@ -59,14 +59,17 @@ green_lower_threshold = (36, 50, 25)
 green_upper_threshold = (70, 255, 255)
 red_lower_threshold = (0, 50, 25)
 red_upper_threshold = (25, 255, 255)
-# wheel diameter =
-# robot width = 
+started = False
+# wheel diameter = 53.25 mm
+# robot width = 114.00 mm
 
 def turn(direction, angle):
     return 0
 
-def move(distance, speed):
-    return 0
+def move(distancet, time):
+    cms_speed = distance / time
+    analog_speed = 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
+    print(analog_speed)
 
 def analyse_image(image):
     # Convert to grayscale, slight brightness shift if needed
@@ -242,7 +245,7 @@ def analyse_image(image):
     return to_return, rows, cols
 while True:
     fdistance = int(f_sensor.get_distance()) - ferror
-    if fdistance < 40:
+    if fdistance < 40 and not started:
         print("Obstacle detected!")
         ser.write(b"255,255\n")
         exit()
@@ -252,17 +255,19 @@ while True:
         frames += 1
         centroid, rows, cols = analyse_image(picam2.capture_array())
         print(f"FPS: {1 / (time.time() - st)}")
-        if centroid[0] == -1:
-            print("U-turn")
-            # Implement U-turn logic here
-            pass
-        elif centroid[0] == 'red':
+        if centroid[0] == 'red':
             print("Red found.")
             if started:
                 started = False
                 break
             else:
                 move(10, 50)
+                started = True
+        if not started: continue
+        if centroid[0] == -1 :
+            print("U-turn")
+            # Implement U-turn logic here
+            pass
         else:
             print(centroid)
             actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
