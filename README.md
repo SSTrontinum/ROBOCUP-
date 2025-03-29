@@ -40,7 +40,7 @@ Insert gif or link to demo
 - 3× 18560 3.7V 4800 mAh Lithium-ion batteries
 ## Software
 ### Raspberry Pi 4 Model B (RPI)
-![flowchart](images/flowchart.png)
+![flowchart](img/flowchart.png)
 - Does the bulk of logic
 - Checks for obstacles, tracks line, follows green squares and sees red line
 - Sends data over serial TX/RX to the SSTuino. Data sent is only motor speeds
