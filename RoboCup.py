@@ -51,7 +51,7 @@ def analyse_image(image):
     #   Adjust alpha, beta to taste
     #   Higher alpha -> stronger contrast, changed to reduce glare washout
     imagetemp = cv2.convertScaleAbs(image, alpha=1.5, beta=0.1)
-    cv2.imshow('test', imagetemp)
+    removed = int(kr*imagetemp.shape[0])
     img = imagetemp[int(kr*imagetemp.shape[0]):]
     rows, cols, _ = img.shape
 
@@ -116,35 +116,12 @@ def analyse_image(image):
             bcylist += centers[i][0] * modweights[i]
             bcc += 1
         bcx, bcy = bcxlist // bcc, bcylist // bcc
-    except: bcx, bcy = rows // 2, cols // 2
+    except: bcx, bcy = cols // 2, rows // 2
     for y_change in range(-4, 5):
         for x_change in range(-4, 5):
             contourimg[int(bcy + y_change)][int(bcx + x_change)] = [255, 0, 0, 255]
-    # Draw the black-line centroid as a blue point in mod
-    if plot:
-        decision = "Decision: Follow blue dot"
-        plt.figure(figsize=(20, 5))
-        plt.subplot(1, 5, 1)
-        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        plt.title('Original Image')
-
-        plt.subplot(1, 5, 2)
-        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        plt.title('Contrast & Morph Fix')
-
-        plt.subplot(1, 5, 3)
-        plt.imshow(cv2.cvtColor(btemplate, cv2.COLOR_BGR2RGB))
-        plt.title('Binary Image')
-
-        plt.subplot(1, 5, 4)
-        plt.imshow(cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
-        plt.title('Contours Image')s
-
-        plt.subplot(1, 5, 5)
-        plt.imshow(cv2.cvtColor(mod, cv2.COLOR_BGR2RGB))
-        plt.title('Analysed')
-        plt.show()
-    cv2.imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2HSV))
+    cv2.imshow('test', btemplate)
+    cv2.imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB))
     return [bcx, bcy], rows, cols
 
 
@@ -162,6 +139,10 @@ while True:
         pass
     else:
         print(centroid)
+        actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
+        max_x_error = actual_y_distance * 0.366399 + 2.25391
+        actual_x_distance = abs(centroid[0] - cols/2)/(cols/2) * max_x_error
+        print(actual_x_distance, actual_y_distance)
         """
         # Additional PID logic may be placed here.
         error_x = centroid[0] - (cols/2)
