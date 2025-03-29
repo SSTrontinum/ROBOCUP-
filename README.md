@@ -1,8 +1,9 @@
+<img src="img/robo_png.png" alt="Robotics @APEX's Xiao Hong" width="120.5" height="110.25">
 
 # 2025 RoboCup Singapore Open
 ## Team SSTrontium
 
-This is the repository for team SSTrontium of Robotics@Apex for the 2025 RoboCup Singapore Open.
+This is the repository for team SSTrontium of [Robotics@Apex](https://github.com/roboapex) for the 2025 RoboCup Singapore Open.
 
 ## Premise
 
