@@ -147,6 +147,7 @@ while True:
             if completed_sectors >= SECTORS_COUNT:
                 break
             time.sleep(0.10)
+        else: ser.write(b"290,220\n")
     time.sleep(0.05)
     key = stdscr.getch()
     if key == ord('q'):
