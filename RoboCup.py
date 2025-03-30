@@ -1,7 +1,7 @@
 ###############
 ### IMPORTS ###
 ###############
-import cv2, serial, time, VL53L0X
+import cv2, serial, time, VL53L0X, py_qmc5883l
 import numpy as np
 from libcamera import Transform, controls
 from picamera2 import Picamera2, Preview
@@ -9,13 +9,15 @@ from picamera2 import Picamera2, Preview
 ###################
 ### CALIBRATION ###
 ###################
-GREEN_LOWER_THRESHOLD = (50, 50, 25)
-GREEN_UPPER_THRESHOLD = (70, 255, 255)
+GREEN_LOWER_THRESHOLD = (40, 50, 25)
+GREEN_UPPER_THRESHOLD = (80, 255, 255)
 RED_LOWER_THRESHOLD_1 = (0, 50, 25)
 RED_UPPER_THRESHOLD_1 = (15, 255, 255)
 RED_LOWER_THRESHOLD_2 = (175, 50, 25)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
-FERROR, RERROR, LERROR = 36, 52, 51
+F_ERROR, R_ERROR, L_ERROR = 36, 52, 51
+GYRO_CALIBRATION = [[1.17476834930162, 0.018605719015194554, 1400.3312322052009], [0.01860571901519455, 1.0019807521296373, 3622.058744732488], [0.0, 0.0, 1.0]]
+GYRO_DECLINATION = 0.19
 # wheel diameter = 53.25 mm
 # robot width = 114.00 mm
 
@@ -57,9 +59,22 @@ F_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 R_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 L_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 
+## GYRO ##
+GYRO = py_qmc5883l.QMC5883L()
+GYRO.declination = GYRO_DECLINATION
+GYRO.calibration = GYRO_CALIBRATION
+
 #################
 ### FUNCTIONS ###
 #################
+def I2C():
+    data = [0, 0, 0, 0]
+    data[0] = F_SENSOR.get_distance() - F_ERROR
+    data[1] = R_SENSOR.get_distance() - R_ERROR
+    data[2] = L_SENSOR.get_distance() - L_ERROR
+    data[3] = GYRO.get_bearing()
+    return data
+
 def CMS2AN(cms_speed):
     return 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
 
@@ -69,7 +84,30 @@ def cv2_imshow(winname, img, x, y):
     cv2.imshow(winname,img)
 
 def turn(direction, angle):
-    return 0
+    direction = direction.upper()
+    if direction == "L":
+        expected_bearing = I2C()[3] + angle
+    else:
+        expected_bearing = I2C()[3] - angle
+    if expected_bearing < 0:
+        expected_bearing += 360
+    elif expected_bearing > 360:
+        expected_bearing -= 360
+    print(f"Current = {I2C()[3]}, Target = {expected_bearing}, Change = {angle}")
+    if direction == "L":
+        ser.write(b"220,290\n")
+        if I2C()[3] > expected_bearing:
+            while I2C()[3] > expected_bearing: pass
+        while I2C()[3] < expected_bearing: pass
+        ser.write(b"255,255\n")
+    else:
+        ser.write(b"290,220\n")
+        if I2C()[3] < expected_bearing:
+            while I2C()[3] < expected_bearing: pass
+        while I2C()[3] > expected_bearing: pass
+        ser.write(b"255,255\n")
+    time.sleep(0.25)
+    return 
 
 def move(distance, t):
     cms = distance / t
@@ -205,11 +243,11 @@ def analyse_image(image):
 
         # Replace these parts with forward and turn
         if green_squares_present[3] and green_squares_present[2]:
-            to_return = ['green', -1, -1]
+            to_return = ['green', 'u', cols//2, green_square_coords[3][1]]
         elif green_squares_present[3]:
-            to_return = ['green', green_squares_coords[3][0],green_squares_coords[3][1]]
+            to_return = ['green', 'r', green_squares_coords[3][0],green_squares_coords[3][1]]
         elif green_squares_present[2]:
-            to_return = ['green', green_squares_coords[3][0],green_squares_coords[3][1]]
+            to_return = ['green', 'l', green_squares_coords[3][0],green_squares_coords[3][1]]
         else: to_return = ['black', cols//2, rows//2]
     
     ####################
@@ -232,19 +270,23 @@ def analyse_image(image):
             cv2.drawContours(contourimg, [contour], -1, (0, 255, 0, 255), 2)
             cv2.circle(contourimg, (cX, cY), 7, (0, 255, 0, 255), -1)
             to_return = ['red', -1]
-    cv2_imshow("Black", btemplate, 10, 50)
-    cv2_imshow("Green", gtemplate, 310, 50)
-    cv2_imshow("Red", rtemplate, 510, 50)
-    cv2_imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB), 210, 210)
+    cv2_imshow("Black", btemplate, 10, 70)
+    cv2_imshow("Green", gtemplate, 410, 70)
+    cv2_imshow("Red", rtemplate, 810, 70)
+    cv2_imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB), 410, 350)
     return to_return, rows, cols
-time.sleep(1)
+
+######################
+### MAIN GAME LOOP ###
+######################
+started = True
 while True:
-    fdistance = int(F_SENSOR.get_distance()) - FERROR
-    print(fdistance)
-    if fdistance < 40 and started:
+    """
+    if I2C()[0] < 40 and started:
         print("Obstacle detected!")
         ser.write(b"255,255\n")
         exit()
+    """
     st = time.time()
     dt = st - prev_time
     data, rows, cols = analyse_image(picam2.capture_array())
@@ -257,13 +299,17 @@ while True:
         else:
             move(10, 2)
             started = True
-    if not started: continue
-    if data[0] == 'green' :
-        if data[0][0] == "-1":
-            print("U-turn")
-        # Implement U-turn logic here
-        pass
-    elif data[0] == 'black':
+    elif data[0] == 'green' and started:
+        ser.write(b"255,255\n")
+        centroid = data[2:]
+        actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
+        move(actual_y_distance, actual_y_distance/5)
+        if data[1] == "u":
+            turn('r', 180)
+        else:
+            turn(data[1], 90)
+        move(5, 1)
+    elif data[0] == 'black' and started:
         centroid = data[1:]
         print(centroid)
         actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
