@@ -74,11 +74,13 @@ def turn(direction, angle):
 def move(distance, t):
     cms = distance / t
     absan = CMS2AN(cms)
-    if distance < 0: actual = 255 - absan
-    else: actual = 255 + absan
-    ser.write(f"{actual},{actual})\n".encode('utf-8'))
+    print(absan)
+    if distance < 0: actual = int(255 - absan)
+    else: actual = int(255 + absan)
+    ser.write(f"{actual:03},{actual:03}\n".encode('utf-8'))
     time.sleep(t)
     ser.write(b"255,255\n")
+    time.sleep(0.5)
     return
 
 def analyse_image(image):
@@ -235,10 +237,11 @@ def analyse_image(image):
     cv2_imshow("Red", rtemplate, 510, 50)
     cv2_imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB), 210, 210)
     return to_return, rows, cols
-
+time.sleep(1)
 while True:
     fdistance = int(F_SENSOR.get_distance()) - FERROR
-    if fdistance < 50 and started:
+    print(fdistance)
+    if fdistance < 40 and started:
         print("Obstacle detected!")
         ser.write(b"255,255\n")
         exit()
@@ -269,7 +272,6 @@ while True:
         actual_x_distance *= -1 if centroid[0] < cols/2 else 1
         print(actual_x_distance, actual_y_distance)
         # Additional PID logic may be placed here.
-        """
         error_x = -1 * actual_x_distance
         d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
         u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
@@ -283,11 +285,10 @@ while True:
         motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
         motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
         ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
-        """
     time.sleep(0.1)
 
 # Clean up: move forward for a set distance
-move(10, 50)
+move(10, 2)
 F_SENSOR.stop_ranging()
 R_SENSOR.stop_ranging()
 L_SENSOR.stop_ranging()
@@ -295,3 +296,4 @@ L_SENSOR.stop_ranging()
 F_SENSOR.close()
 R_SENSOR.close()
 L_SENSOR.close()
+exit()

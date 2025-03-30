@@ -69,7 +69,7 @@ try:
         print("Left: %d mm, %d cm, %d" % (distance, (distance/10), count))
         print("-----------------------------")
 
-        time.sleep(timing/1000000)
+        time.sleep(0.1)
 
     tof1.stop_ranging()
     tof2.stop_ranging()
