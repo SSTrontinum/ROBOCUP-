@@ -261,7 +261,7 @@ def analyse_image(image):
         bcx, bcy = int(bcxlist // bcc), int(bcylist // bcc)
     except: bcx, bcy = int(cols // 2), int(rows // 2)
     try:
-        if len(centers) > 1: cv2.circle(contourimg, (bcx,bcy), (0, 0, 255, 255) -1)
+        if len(centers) > 1: cv2.circle(contourimg, (bcx,bcy), (0, 0, 255, 255), -1)
     except: pass
     to_return = ['black', bcx, bcy]
     
