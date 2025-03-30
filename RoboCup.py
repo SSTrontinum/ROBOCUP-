@@ -20,6 +20,8 @@ GYRO_CALIBRATION = [[1.17476834930162, 0.018605719015194554, 1400.3312322052009]
 GYRO_DECLINATION = 0.19
 ROBOT_WIDTH = 11.4
 ROBOT_LENGTH = 15.0
+OBSTACLE_DISTANCE_SPOTTED_THRESHOLD = 50
+OBSTACLE_DETECTED_THRESHOLD = 30
 # wheel diameter = 53.25 mm
 # robot width = 114.00 mm
 
@@ -27,7 +29,7 @@ ROBOT_LENGTH = 15.0
 ### GLOBAL VARIABLES ###
 ########################
 # PID config
-kp = 1
+kp = 200
 ki = 0
 kd = 0
 error_sum = 0
@@ -69,6 +71,9 @@ GYRO.calibration = GYRO_CALIBRATION
 #################
 ### FUNCTIONS ###
 #################
+def CMS2AN(cms_speed):
+    return 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
+
 def I2C():
     data = [0, 0, 0, 0]
     data[0] = F_SENSOR.get_distance() - F_ERROR
@@ -77,8 +82,67 @@ def I2C():
     data[3] = GYRO.get_bearing()
     return data
 
-def CMS2AN(cms_speed):
-    return 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
+def move_until_detect(side):
+    if side == 'r':
+        current = I2C()[1]
+        if current < OBSTACLE_DETECTED_THRESHOLD: 
+            ser.write(b"205,205\n")
+            while abs(I2C()[1] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
+            ser.write(b"255,255\n")
+        else:
+            ser.write(b"305,305\n")
+            while abs(I2C()[1] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
+            ser.write(b"255,255\n")
+    else:
+        current = I2C()[2]
+        if current < OBSTACLE_DETECTED_THRESHOLD: 
+            ser.write(b"205,205\n")
+            while abs(I2C()[2] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
+            ser.write(b"255,255\n")
+        else:
+            ser.write(b"305,305\n")
+            while abs(I2C()[2] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
+            ser.write(b"255,255\n")
+    move(5, 1)
+
+def move_until_undetect(side):
+    start_time = time.time()
+    if side == 'r':
+        current = I2C()[1]
+        ser.write(b"305,305\n")
+        while abs(I2C()[1] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
+        ser.write(b"255,255\n")
+    else:
+        current = I2C()[2]
+        ser.write(b"305,305\n")
+        while abs(I2C()[2] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
+        ser.write(b"255,255\n")
+    return time.time() - start_time
+
+def check_for_line():
+    image = picam2.capture_array()
+    imagetemp = cv2.convertScaleAbs(image, alpha=1.5, beta=0.1)
+    removed = int(kr*imagetemp.shape[0])
+    img = imagetemp[int(kr*imagetemp.shape[0]):]
+    rows, cols, _ = img.shape
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    bcx, bcy = 0,0
+    ret,btemplate = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
+    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_OPEN, kernel)
+    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
+    ret,btemplate = cv2.threshold(btemplate, 128, 255, cv2.THRESH_BINARY_INV)
+    for i in range(rows):
+        for j in range(cols):
+            if i <= 5 or i >= (rows - 5):
+                btemplate[i][j] = 255
+            if j <= 5 or j >= (cols - 5):
+                btemplate[i][j] = 255
+    contours, hierarchy = cv2.findContours(btemplate, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    for index in range(len(contours)):
+        cnt = contours[index]
+        if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 30000:
+            return True
+    return False
 
 def cv2_imshow(winname, img, x, y):
     cv2.namedWindow(winname)  
@@ -283,12 +347,22 @@ def analyse_image(image):
 ######################
 started = True
 while True:
-    """
-    if I2C()[0] < 40 and started:
+    if I2C()[0] < OBSTACLE_DISTANCE_THRESHOLD and started:
         print("Obstacle detected!")
         ser.write(b"255,255\n")
-        exit()
-    """
+        turn('r', 90)
+        while True:
+            move_until_detect('l')
+            move_until_undetect('l')
+            move(10,2)
+            turn('l', 90)
+            if check_for_line:
+                move_until_detect('l')
+                object = move_until_undetect('l')
+                move(object/2, object/10)
+                turn('r', 90)
+                move(5,1)
+                break
     st = time.time()
     dt = st - prev_time
     data, rows, cols = analyse_image(picam2.capture_array())
@@ -344,7 +418,7 @@ while True:
                 else:
                     ser.write(f"{int(inner_speed + 255)},{int(outer_speed + 255)}\n".encode("utf-8"))
         else:
-            PID (i was too lazy to calibrate these)
+            #PID (i was too lazy to calibrate these)
             error_x = -1 * actual_x_distance
             d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
             u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
