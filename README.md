@@ -74,3 +74,4 @@ Insert gif or link to demo
  - [Python Driver for QMC5883L](https://github.com/RigacciOrg/py-qmc5883l)
  - [VL530X interface for Raspberry Pi](https://github.com/johnbryanmoore/VL53L0X_rasp_python)
  - [L298N Arduino Library](https://github.com/AndreaLombardo/L298N)
+ - [Python Odometry Controller](https://github.com/yaushing/aps)

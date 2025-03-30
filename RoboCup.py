@@ -18,6 +18,8 @@ RED_UPPER_THRESHOLD_2 = (180, 255, 255)
 F_ERROR, R_ERROR, L_ERROR = 36, 52, 51
 GYRO_CALIBRATION = [[1.17476834930162, 0.018605719015194554, 1400.3312322052009], [0.01860571901519455, 1.0019807521296373, 3622.058744732488], [0.0, 0.0, 1.0]]
 GYRO_DECLINATION = 0.19
+ROBOT_WIDTH = 11.4
+ROBOT_LENGTH = 15.0
 # wheel diameter = 53.25 mm
 # robot width = 114.00 mm
 
@@ -304,10 +306,8 @@ while True:
         centroid = data[2:]
         actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
         move(actual_y_distance, actual_y_distance/5)
-        if data[1] == "u":
-            turn('r', 180)
-        else:
-            turn(data[1], 90)
+        if data[1] == "u": turn('r', 180)
+        else: turn(data[1], 90)
         move(5, 1)
     elif data[0] == 'black' and started:
         centroid = data[1:]
@@ -317,20 +317,47 @@ while True:
         actual_x_distance = abs(centroid[0] - cols/2)/(cols/2) * max_x_error
         actual_x_distance *= -1 if centroid[0] < cols/2 else 1
         print(actual_x_distance, actual_y_distance)
-        # Additional PID logic may be placed here.
-        error_x = -1 * actual_x_distance
-        d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
-        u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
-        prev_error = error_x
-        prev_time = st
+        # MOVEMENT USING MATHEMATICS!!!
+        # The robot is at point A, the point is at point B, it can ALWAYS arc from A to B
+        # Should only be used if y_distance > x_distance for efficiency
+        if actual_y_distance >= actual_x_distance:
+            angleAB = abs(math.atan(actual_y_distance / actual_x_distance))
+            theta = math.pi / 2 - angleAB
+            r = (actual_x_distance**2 + actual_y_distance**2)**0.5 / (2 * math.sin(theta))
+            # Edge case: r = ROBOT_WIDTH / 2, means it's a pivot turn
+            # Adds a threshold just in case
+            if r - ROBOT_WIDTH / 2 <= 0.5:
+                if actual_x_distance > 0: ser.write(b"305,255\n")
+                else: ser.write(b"255,305\n")
+            else:
+                tracking_distance = 2 * r * theta
+                outer_tracking_distance = 2 * (r + ROBOT_WIDTH / 2) * theta
+                inner_tracking_distance = 2 * (r - ROBOT_WIDTH / 2) * theta
+                if inner_tracking_distance > 0: inner_speed = 25
+                else: inner_speed = -25
+                outer_speed = inner_speed * outer_tracking_distance / inner_tracking_distance
+                if outer_speed > 255:
+                    inner_speed = 255/outer_speed * inner_speed
+                    outer_speed == 255
+                if actual_x_distance > 0:
+                    ser.write(f"{int(outer_speed + 255)},{int(inner_speed + 255)}\n".encode("utf-8"))
+                else:
+                    ser.write(f"{int(inner_speed + 255)},{int(outer_speed + 255)}\n".encode("utf-8"))
+        else:
+            PID (i was too lazy to calibrate these)
+            error_x = -1 * actual_x_distance
+            d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
+            u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
+            prev_error = error_x
+            prev_time = st
 
-        base_speed = 50
-        motor_right_speed = base_speed - u
-        motor_left_speed = base_speed + u
+            base_speed = 50
+            motor_right_speed = base_speed - u
+            motor_left_speed = base_speed + u
 
-        motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
-        motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
-        ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
+            motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
+            motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
+            ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
     time.sleep(0.1)
 
 # Clean up: move forward for a set distance
