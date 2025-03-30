@@ -1,7 +1,8 @@
 ###############
 ### IMPORTS ###
 ###############
-import cv2, serial, time, VL53L0X, py_qmc5883l
+import cv2, serial, time, math
+import VL53L0X, py_qmc5883l
 import numpy as np
 from libcamera import Transform, controls
 from picamera2 import Picamera2, Preview
@@ -9,11 +10,11 @@ from picamera2 import Picamera2, Preview
 ###################
 ### CALIBRATION ###
 ###################
-GREEN_LOWER_THRESHOLD = (40, 50, 25)
+GREEN_LOWER_THRESHOLD = (35, 35, 25)
 GREEN_UPPER_THRESHOLD = (80, 255, 255)
-RED_LOWER_THRESHOLD_1 = (0, 50, 25)
+RED_LOWER_THRESHOLD_1 = (0, 35, 25)
 RED_UPPER_THRESHOLD_1 = (15, 255, 255)
-RED_LOWER_THRESHOLD_2 = (175, 50, 25)
+RED_LOWER_THRESHOLD_2 = (175, 35, 25)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
 F_ERROR, R_ERROR, L_ERROR = 36, 52, 51
 GYRO_CALIBRATION = [[1.17476834930162, 0.018605719015194554, 1400.3312322052009], [0.01860571901519455, 1.0019807521296373, 3622.058744732488], [0.0, 0.0, 1.0]]
@@ -21,7 +22,10 @@ GYRO_DECLINATION = 0.19
 ROBOT_WIDTH = 11.4
 ROBOT_LENGTH = 15.0
 OBSTACLE_DISTANCE_SPOTTED_THRESHOLD = 50
-OBSTACLE_DETECTED_THRESHOLD = 30
+OBSTACLE_DETECTION_THRESHOLD = 40
+INNER = 30
+MAX_F_DIST = 200
+MAX_S_DIST = 300
 # wheel diameter = 53.25 mm
 # robot width = 114.00 mm
 
@@ -34,7 +38,7 @@ ki = 0
 kd = 0
 error_sum = 0
 prev_error = 0
-kr = 0.25
+kr = 0.15
 prev_time = time.time()
 started = False
 
@@ -76,16 +80,21 @@ def CMS2AN(cms_speed):
 
 def I2C():
     data = [0, 0, 0, 0]
-    data[0] = F_SENSOR.get_distance() - F_ERROR
-    data[1] = R_SENSOR.get_distance() - R_ERROR
-    data[2] = L_SENSOR.get_distance() - L_ERROR
+    data[0] = min(MAX_F_DIST, F_SENSOR.get_distance() - F_ERROR)
+    data[1] = min(MAX_S_DIST, R_SENSOR.get_distance() - R_ERROR)
+    data[2] = min(MAX_S_DIST, L_SENSOR.get_distance() - L_ERROR)
     data[3] = GYRO.get_bearing()
+    new_f = F_SENSOR.get_distance() - F_ERROR
+    if abs(new_f - data[0]) > 10:
+        data[0] = -1 # Invalid
+    else:
+        data[0] = (new_f + data[0])/2
     return data
 
 def move_until_detect(side):
     if side == 'r':
         current = I2C()[1]
-        if current < OBSTACLE_DETECTED_THRESHOLD: 
+        if current < OBSTACLE_DETECTION_THRESHOLD: 
             ser.write(b"205,205\n")
             while abs(I2C()[1] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
             ser.write(b"255,255\n")
@@ -95,7 +104,7 @@ def move_until_detect(side):
             ser.write(b"255,255\n")
     else:
         current = I2C()[2]
-        if current < OBSTACLE_DETECTED_THRESHOLD: 
+        if current < OBSTACLE_DETECTION_THRESHOLD: 
             ser.write(b"205,205\n")
             while abs(I2C()[2] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
             ser.write(b"255,255\n")
@@ -118,6 +127,11 @@ def move_until_undetect(side):
         while abs(I2C()[2] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
         ser.write(b"255,255\n")
     return time.time() - start_time
+
+def move_speed(speed, t):
+    ser.write(f"{speed},{speed}\n".encode('utf-8'))
+    time.sleep(t)
+    ser.write(b"255,255\n")
 
 def check_for_line():
     image = picam2.capture_array()
@@ -176,7 +190,7 @@ def turn(direction, angle):
     return 
 
 def move(distance, t):
-    cms = distance / t
+    cms = abs(distance) / t
     absan = CMS2AN(cms)
     print(absan)
     if distance < 0: actual = int(255 - absan)
@@ -281,7 +295,6 @@ def analyse_image(image):
         for gc in gcs:
             gx, gy = gc[0], gc[1]
             bgx = bgxc = bgy = bgyc = 0
-
             for x in range(len(btemplate[gy])):
                 if btemplate[gy][x] < 128:
                     bgx += x
@@ -301,19 +314,27 @@ def analyse_image(image):
             cv2.rectangle(contourimg, (gx, min(gy, bgy)), (gx, max(gy, bgy)), (255, 0, 0, 255), 5)
 
             if gy > bgy:
-                if gx > bgx: green_squares_present[3] = True # bottom right
-                else: green_squares_present[2] = True # bottom left
+                if gx > bgx:
+                    green_squares_present[3] = True # bottom right
+                    green_squares_coords[3] = [gx,gy]
+                else:
+                    green_squares_present[2] = True # bottom left
+                    green_squares_coords[2] = [gx,gy]
             else:
-                if gx > bgx: green_squares_present[0] = True # top right
-                else: green_squares_present[1] = True # top left
+                if gx > bgx:
+                    green_squares_present[0] = True # top right
+                    green_squares_coords[0] = [gx,gy]
+                else:
+                    green_squares_present[1] = True # top left
+                    green_squares_coords[1] = [gx,gy]
 
         # Replace these parts with forward and turn
         if green_squares_present[3] and green_squares_present[2]:
-            to_return = ['green', 'u', cols//2, green_square_coords[3][1]]
+            to_return = ['green', 'u', cols//2, (green_squares_coords[3][1] + green_squares_coords[2][1])//2]
         elif green_squares_present[3]:
-            to_return = ['green', 'r', green_squares_coords[3][0],green_squares_coords[3][1]]
+            to_return = ['green', 'r', 0, green_squares_coords[3][1]]
         elif green_squares_present[2]:
-            to_return = ['green', 'l', green_squares_coords[3][0],green_squares_coords[3][1]]
+            to_return = ['green', 'l', 0, green_squares_coords[2][1]]
         else: to_return = ['black', cols//2, rows//2]
     
     ####################
@@ -345,21 +366,23 @@ def analyse_image(image):
 ######################
 ### MAIN GAME LOOP ###
 ######################
-started = True
 while True:
-    if I2C()[0] < OBSTACLE_DISTANCE_THRESHOLD and started:
+    f_dist = I2C()[0]
+    if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
         print("Obstacle detected!")
+        print(f_dist)
         ser.write(b"255,255\n")
+        move(-8,1.5)
         turn('r', 90)
         while True:
             move_until_detect('l')
             move_until_undetect('l')
-            move(10,2)
             turn('l', 90)
             if check_for_line:
                 move_until_detect('l')
-                object = move_until_undetect('l')
-                move(object/2, object/10)
+                object_d = move_until_undetect('l')
+                move_speed(205, object_d/2)
+                move(-1 * (ROBOT_LENGTH/2), 2)
                 turn('r', 90)
                 move(5,1)
                 break
@@ -379,7 +402,7 @@ while True:
         ser.write(b"255,255\n")
         centroid = data[2:]
         actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
-        move(actual_y_distance, actual_y_distance/5)
+        move(actual_y_distance*1.3, actual_y_distance*1.3/5)
         if data[1] == "u": turn('r', 180)
         else: turn(data[1], 90)
         move(5, 1)
@@ -394,44 +417,46 @@ while True:
         # MOVEMENT USING MATHEMATICS!!!
         # The robot is at point A, the point is at point B, it can ALWAYS arc from A to B
         # Should only be used if y_distance > x_distance for efficiency
-        if actual_y_distance >= actual_x_distance:
-            angleAB = abs(math.atan(actual_y_distance / actual_x_distance))
-            theta = math.pi / 2 - angleAB
-            r = (actual_x_distance**2 + actual_y_distance**2)**0.5 / (2 * math.sin(theta))
-            # Edge case: r = ROBOT_WIDTH / 2, means it's a pivot turn
-            # Adds a threshold just in case
-            if r - ROBOT_WIDTH / 2 <= 0.5:
-                if actual_x_distance > 0: ser.write(b"305,255\n")
-                else: ser.write(b"255,305\n")
-            else:
-                tracking_distance = 2 * r * theta
-                outer_tracking_distance = 2 * (r + ROBOT_WIDTH / 2) * theta
-                inner_tracking_distance = 2 * (r - ROBOT_WIDTH / 2) * theta
-                if inner_tracking_distance > 0: inner_speed = 25
-                else: inner_speed = -25
-                outer_speed = inner_speed * outer_tracking_distance / inner_tracking_distance
-                if outer_speed > 255:
-                    inner_speed = 255/outer_speed * inner_speed
-                    outer_speed == 255
-                if actual_x_distance > 0:
-                    ser.write(f"{int(outer_speed + 255)},{int(inner_speed + 255)}\n".encode("utf-8"))
+        if actual_x_distance != 0:
+            if actual_y_distance >= abs(actual_x_distance):
+                angleAB = abs(math.atan(actual_y_distance / actual_x_distance))
+                theta = math.pi / 2 - angleAB
+                r = (actual_x_distance**2 + actual_y_distance**2)**0.5 / (2 * math.sin(theta))
+                # Edge case: r = ROBOT_WIDTH / 2, means it's a pivot turn
+                # Adds a threshold just in case
+                if r - ROBOT_WIDTH / 2 <= 0.5:
+                    if actual_x_distance > 0: ser.write(b"305,255\n")
+                    else: ser.write(b"255,305\n")
                 else:
-                    ser.write(f"{int(inner_speed + 255)},{int(outer_speed + 255)}\n".encode("utf-8"))
+                    tracking_distance = 2 * r * theta
+                    outer_tracking_distance = 2 * (r + ROBOT_WIDTH / 2) * theta
+                    inner_tracking_distance = 2 * (r - ROBOT_WIDTH / 2) * theta
+                    if inner_tracking_distance > 0: inner_speed = INNER
+                    else: inner_speed = -1 * INNER
+                    outer_speed = inner_speed * outer_tracking_distance / inner_tracking_distance
+                    if outer_speed > 255:
+                        inner_speed = 255/outer_speed * inner_speed
+                        outer_speed == 255
+                    if actual_x_distance > 0:
+                        ser.write(f"{int(outer_speed + 255)},{int(inner_speed + 255)}\n".encode("utf-8"))
+                    else:
+                        ser.write(f"{int(inner_speed + 255)},{int(outer_speed + 255)}\n".encode("utf-8"))
+            else:
+                #PID (i was too lazy to calibrate these)
+                error_x = -1 * actual_x_distance
+                d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
+                u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
+                prev_error = error_x
+                prev_time = st
+
+                base_speed = 50
+                motor_right_speed = base_speed - u
+                motor_left_speed = base_speed + u
+                motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
+                motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
+                ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
         else:
-            #PID (i was too lazy to calibrate these)
-            error_x = -1 * actual_x_distance
-            d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
-            u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
-            prev_error = error_x
-            prev_time = st
-
-            base_speed = 50
-            motor_right_speed = base_speed - u
-            motor_left_speed = base_speed + u
-
-            motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
-            motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
-            ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
+            ser.write(b"305,305\n")
     time.sleep(0.1)
 
 # Clean up: move forward for a set distance
