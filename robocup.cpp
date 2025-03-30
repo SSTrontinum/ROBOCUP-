@@ -12,8 +12,8 @@ int leftMotorSpeed;
 int rightMotorSpeed;
 bool valid;
 SoftwareSerial mySerial(5,11);
-L298NX2 leftMotors(6, 0, 1, 3, 12, 13);
-L298NX2 rightMotors(9, 2, 7, 10, 4, 8);
+L298NX2 rightMotors(6, 0, 1, 3, 12, 13);
+L298NX2 leftMotors(9, 2, 7, 10, 4, 8);
 
 //////////////////////////////
 /// USER DEFINED FUNCTIONS ///
@@ -59,33 +59,35 @@ void loop() {
     parseSpeed(data, result); // splits the char array by ',' into result
     if (result[0] >= 0 && result[0] <= 510 && result[1] >= 0 && result[1] <= 510) {
       valid = true;
-    } else {valid = false;}
-    if (result[0] == 255 && result[1] == 255) {
+    } else {
+      valid = false;
+    }
+    if (valid) {
       WiFi.setLEDs(0, 255, 0); // Set light to green
+      // Updates left motor speed and right motor speed
+      leftMotors.setSpeed(abs(result[0] - 255));
+      rightMotors.setSpeed(abs(result[1] - 255));
+      if (result[0] > 255) {
+        leftMotors.forward();
+      } else if (result[0] < 255) {
+        leftMotors.backward();
+      } else {
+        leftMotors.stop();
+      }
+      if (result[1] > 255) {
+        rightMotors.forward();
+      } else if (result[1] < 255) {
+        rightMotors.backward();
+      } else {
+        rightMotors.stop();
+      }
+    } else {
+      // The serial output did not send the correct data
+      WiFi.setLEDs(255, 0, 0); // Set light to red
       leftMotors.setSpeed(0);
       rightMotors.setSpeed(0);
-      leftMotors.forward();
-      leftMotors.forward();
-    } else {
-      if (valid) {
-        WiFi.setLEDs(0, 255, 0); // Set light to green
-        // Updates left motor speed and right motor speed
-        leftMotors.setSpeed(abs(result[0] - 255));
-        rightMotors.setSpeed(abs(result[1] - 255));
-        if (result[0] > 255) {
-          leftMotors.forward();
-        } else {leftMotors.backward();}
-        if (result[1] > 255) {
-          rightMotors.forward();
-        } else {rightMotors.backward();}
-      } else {
-        // The serial output did not send the correct data
-        WiFi.setLEDs(255, 0, 0); // Set light to red
-        leftMotors.setSpeed(0);
-        rightMotors.setSpeed(0);
-        leftMotors.forward();
-        leftMotors.forward();
-      }
+      leftMotors.stop();
+      rightMotors.stop();
     }
   } else {
     WiFi.setLEDs(0, 0, 255); // Set light to blue
