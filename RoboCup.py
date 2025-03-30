@@ -9,11 +9,11 @@ from picamera2 import Picamera2, Preview
 ###################
 ### CALIBRATION ###
 ###################
-GREEN_LOWER_THESHOLD = (36, 50, 25)
-GREEN_UPPER_THESHOLD = (70, 255, 255)
+GREEN_LOWER_THRESHOLD = (50, 50, 25)
+GREEN_UPPER_THRESHOLD = (70, 255, 255)
 RED_LOWER_THRESHOLD_1 = (0, 50, 25)
-RED_UPPER_THRESHOLD_1 = (25, 255, 255)
-RED_LOWER_THRESHOLD_2 = (165, 50, 25)
+RED_UPPER_THRESHOLD_1 = (15, 255, 255)
+RED_LOWER_THRESHOLD_2 = (175, 50, 25)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
 FERROR, RERROR, LERROR = 36, 52, 51
 # wheel diameter = 53.25 mm
@@ -60,6 +60,9 @@ L_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 #################
 ### FUNCTIONS ###
 #################
+def CMS2AN(cms_speed):
+    return 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
+
 def cv2_imshow(winname, img, x, y):
     cv2.namedWindow(winname)  
     cv2.moveWindow(winname, x, y)
@@ -68,10 +71,15 @@ def cv2_imshow(winname, img, x, y):
 def turn(direction, angle):
     return 0
 
-def move(distancet, time):
-    cms_speed = distance / time
-    analog_speed = 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
-    print(analog_speed)
+def move(distance, t):
+    cms = distance / t
+    absan = CMS2AN(cms)
+    if distance < 0: actual = 255 - absan
+    else: actual = 255 + absan
+    ser.write(f"{actual},{actual})\n".encode('utf-8'))
+    time.sleep(t)
+    ser.write(b"255,255\n")
+    return
 
 def analyse_image(image):
     # Convert to grayscale, slight brightness shift if needed
@@ -94,7 +102,11 @@ def analyse_image(image):
     # Convert to grayscale and do morphological open to remove noise
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     bcx, bcy = 0,0
-    ret,btemplate = cv2.threshold(gray, 128, 255, THRESH_BINARY_INV)
+    ret,btemplate = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
+    # Morph open to remove noise, morph close to close up the line
+    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_OPEN, kernel)
+    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
+    ret,btemplate = cv2.threshold(btemplate, 128, 255, cv2.THRESH_BINARY_INV)
     # Force edges to be white so they don't get picked
     for i in range(rows):
         for j in range(cols):
@@ -102,16 +114,12 @@ def analyse_image(image):
                 btemplate[i][j] = 255
             if j <= 5 or j >= (cols - 5):
                 btemplate[i][j] = 255
-    # Morph open to remove noise, morph close to close up the line
-    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_OPEN, kernel)
-    btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
-    ret,btemplate = cv2.threshold(btemplate, 128, 255, THRESH_BINARY_INV)
     contours, hierarchy = cv2.findContours(btemplate, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     bcxlist = bcylist = bcc = 0
     centers, weights = [], []
     for index in range(len(contours)):
         cnt = contours[index]
-        if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 10000:
+        if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 30000:
             x,y,w,h = cv2.boundingRect(cnt)
             if y + h > 0.75 * rows:
                 M = cv2.moments(cnt)
@@ -135,13 +143,13 @@ def analyse_image(image):
     try:
         if len(centers) > 1: cv2.circle(contourimg, (bcx,bcy), (0, 0, 255, 255) -1)
     except: pass
-    to_return = [bcx, bcy]
+    to_return = ['black', bcx, bcy]
     
     #########################
     ### GET GREEN SQUARES ###
     #########################
-    hsvimg = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
-    gtemplate = cv2.inRange(hsvimg, GREEN_LOWER_THRESHOLD, GREEN_UPPER_THRESHOLD)
+    ghsvimg = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    gtemplate = cv2.inRange(ghsvimg, GREEN_LOWER_THRESHOLD, GREEN_UPPER_THRESHOLD)
     gtemplate = cv2.morphologyEx(gtemplate, cv2.MORPH_OPEN, kernel)
     gtemplate = cv2.morphologyEx(gtemplate, cv2.MORPH_CLOSE, kernel)
     ret,gtemplate = cv2.threshold(gtemplate, 128, 255, cv2.THRESH_BINARY_INV)
@@ -195,21 +203,19 @@ def analyse_image(image):
 
         # Replace these parts with forward and turn
         if green_squares_present[3] and green_squares_present[2]:
-            to_return = [-1, -1]
+            to_return = ['green', -1, -1]
         elif green_squares_present[3]:
-            to_return = green_squares_coords[3]
-            to_return[0] = cols
+            to_return = ['green', green_squares_coords[3][0],green_squares_coords[3][1]]
         elif green_squares_present[2]:
-            to_return = green_squares_coords[2]
-            to_return[0] = 0
-        else: to_return = [cols//2, rows//2]
+            to_return = ['green', green_squares_coords[3][0],green_squares_coords[3][1]]
+        else: to_return = ['black', cols//2, rows//2]
     
     ####################
     ### GET RED LINE ###
     ####################
-    hsvimg = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
-    mask1 = cv2.inRange(hsvimg, RED_LOWER_THRESHOLD_1, RED_UPPER_THRESHOLD_1)
-    mask2 = cv2.inRange(hsvimg, RED_LOWER_THRESHOLD_2, RED_UPPER_THRESHOLD_2)
+    rhsvimg = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+    mask1 = cv2.inRange(rhsvimg, RED_LOWER_THRESHOLD_1, RED_UPPER_THRESHOLD_1)
+    mask2 = cv2.inRange(rhsvimg, RED_LOWER_THRESHOLD_2, RED_UPPER_THRESHOLD_2)
     rtemplate = cv2.bitwise_or(mask1, mask2)
     rtemplate = cv2.morphologyEx(rtemplate, cv2.MORPH_OPEN, kernel)
     rtemplate = cv2.morphologyEx(rtemplate, cv2.MORPH_CLOSE, kernel)
@@ -224,37 +230,38 @@ def analyse_image(image):
             cv2.drawContours(contourimg, [contour], -1, (0, 255, 0, 255), 2)
             cv2.circle(contourimg, (cX, cY), 7, (0, 255, 0, 255), -1)
             to_return = ['red', -1]
-    cv2_imshow("Black", btemplate, 10, 10)
-    cv2_imshow("Green", gtemplate, 60, 10)
-    cv2_imshow("Red", rtemplate, 110, 10)
-    cv2_imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB), 60, 60)
+    cv2_imshow("Black", btemplate, 10, 50)
+    cv2_imshow("Green", gtemplate, 310, 50)
+    cv2_imshow("Red", rtemplate, 510, 50)
+    cv2_imshow("Analysis", cv2.cvtColor(contourimg, cv2.COLOR_BGR2RGB), 210, 210)
     return to_return, rows, cols
 
 while True:
-    fdistance = int(F_SENSOR.get_distance()) - ferror
+    fdistance = int(F_SENSOR.get_distance()) - FERROR
     if fdistance < 50 and started:
         print("Obstacle detected!")
         ser.write(b"255,255\n")
         exit()
     st = time.time()
     dt = st - prev_time
-    frames += 1
-    centroid, rows, cols = analyse_image(picam2.capture_array())
+    data, rows, cols = analyse_image(picam2.capture_array())
     print(f"FPS: {1 / (time.time() - st)}")
-    if centroid[0] == 'red':
+    if data[0] == 'red':
         print("Red found.")
         if started:
             started = False
             break
         else:
-            move(10, 50)
+            move(10, 2)
             started = True
     if not started: continue
-    if centroid[0] == -1 :
-        print("U-turn")
+    if data[0] == 'green' :
+        if data[0][0] == "-1":
+            print("U-turn")
         # Implement U-turn logic here
         pass
-    else:
+    elif data[0] == 'black':
+        centroid = data[1:]
         print(centroid)
         actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
         max_x_error = actual_y_distance * 0.366399 + 2.25391
