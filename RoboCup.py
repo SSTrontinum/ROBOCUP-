@@ -7,7 +7,10 @@ import numpy as np
 from libcamera import Transform, controls
 from picamera2 import Picamera2, Preview
 
-###################
+# BNO055 and PCA9548A imports
+import board, busio, adafruit_pca9548a, adafruit_bno055
+
+####f###############
 ### CALIBRATION ###
 ###################
 GREEN_LOWER_THRESHOLD = (35, 35, 25)
@@ -16,14 +19,15 @@ RED_LOWER_THRESHOLD_1 = (0, 35, 25)
 RED_UPPER_THRESHOLD_1 = (15, 255, 255)
 RED_LOWER_THRESHOLD_2 = (175, 35, 25)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
-F_ERROR, R_ERROR, L_ERROR = 36, 52, 51
-GYRO_CALIBRATION = [[1.0772152386855227, 0.07711129827072825, 1669.8477566463714], [0.07711129827072828, 1.077007497771448, 2400.475569758177], [0.0, 0.0, 1.0]]
+F_ERROR, R_ERROR, L_ERROR = 35, 53, 55
+GYRO_CALIBRATION = [[1.17476834930162, 0.018605719015194554, 1400.3312322052009], [0.01860571901519455, 1.0019807521296373, 3622.058744732488], [0.0, 0.0, 1.0]]
 GYRO_DECLINATION = 0.19
 ROBOT_WIDTH = 11.4
 ROBOT_LENGTH = 15.0
 OBSTACLE_DISTANCE_SPOTTED_THRESHOLD = 50
 OBSTACLE_DETECTION_THRESHOLD = 40
-INNER = 30
+INNER = 55
+BASE = 100
 MAX_F_DIST = 200
 MAX_S_DIST = 300
 # wheel diameter = 53.25 mm
@@ -33,14 +37,14 @@ MAX_S_DIST = 300
 ### GLOBAL VARIABLES ###
 ########################
 # PID config
-kp = 200
+kp = 10
 ki = 0
 kd = 0
 error_sum = 0
 prev_error = 0
 kr = 0.15
 prev_time = time.time()
-started = False
+started = True
 
 ######################
 ### INITIALISATION ###
@@ -52,7 +56,7 @@ ser.flush()
 
 ## CAMERA ##
 picam2 = Picamera2()
-preview_config = picam2.create_preview_configuration({"size": (258, 194)},transform=Transform(hflip=True, vflip=True))
+preview_config = picam2.create_preview_configuration({"size": (258, 194)}, transform=Transform(hflip=True, vflip=True))
 picam2.configure(preview_config)
 picam2.start(show_preview=True)
 
@@ -66,6 +70,18 @@ L_SENSOR.open()
 F_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 R_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 L_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
+
+## BNO055 ##
+# Initialise I2C bus for multiplexer and sensor
+i2c_bus = busio.I2C(board.SCL, board.SDA)
+# Initialise PCA9548A multiplexer
+pca = adafruit_pca9548a.PCA9548A(i2c_bus)
+# Select the multiplexer channel where the BNO055 is connected (adjust channel index as needed)
+bno_channel = pca.channels[0]
+# Initialise BNO055 sensor on the selected channel
+BNO055 = adafruit_bno055.BNO055_I2C(bno_channel)
+time.sleep(1)
+print("BNO055 initialised on PCA9548A channel 0.")
 
 ## GYRO ##
 GYRO = py_qmc5883l.QMC5883L()
@@ -88,13 +104,13 @@ def I2C():
     if abs(new_f - data[0]) > 10:
         data[0] = -1 # Invalid
     else:
-        data[0] = (new_f + data[0])/2
+        data[0] = (new_f + data[0]) / 2
     return data
 
 def move_until_detect(side):
     if side == 'r':
         current = I2C()[1]
-        if current < OBSTACLE_DETECTION_THRESHOLD: 
+        if current < OBSTACLE_DETECTION_THRESHOLD:
             ser.write(b"205,205\n")
             while abs(I2C()[1] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
             ser.write(b"255,255\n")
@@ -104,7 +120,7 @@ def move_until_detect(side):
             ser.write(b"255,255\n")
     else:
         current = I2C()[2]
-        if current < OBSTACLE_DETECTION_THRESHOLD: 
+        if current < OBSTACLE_DETECTION_THRESHOLD:
             ser.write(b"205,205\n")
             while abs(I2C()[2] - current) < OBSTACLE_DISTANCE_SPOTTED_THRESHOLD: pass
             ser.write(b"255,255\n")
@@ -136,15 +152,15 @@ def move_speed(speed, t):
 def check_for_line():
     image = picam2.capture_array()
     imagetemp = cv2.convertScaleAbs(image, alpha=1.5, beta=0.1)
-    removed = int(kr*imagetemp.shape[0])
-    img = imagetemp[int(kr*imagetemp.shape[0]):]
+    removed = int(kr * imagetemp.shape[0])
+    img = imagetemp[int(kr * imagetemp.shape[0]):]
     rows, cols, _ = img.shape
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    bcx, bcy = 0,0
-    ret,btemplate = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
+    bcx, bcy = 0, 0
+    ret, btemplate = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_OPEN, kernel)
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
-    ret,btemplate = cv2.threshold(btemplate, 128, 255, cv2.THRESH_BINARY_INV)
+    ret, btemplate = cv2.threshold(btemplate, 128, 255, cv2.THRESH_BINARY_INV)
     for i in range(rows):
         for j in range(cols):
             if i <= 5 or i >= (rows - 5):
@@ -161,7 +177,7 @@ def check_for_line():
 def cv2_imshow(winname, img, x, y):
     cv2.namedWindow(winname)  
     cv2.moveWindow(winname, x, y)
-    cv2.imshow(winname,img)
+    cv2.imshow(winname, img)
 
 def turn(direction, angle):
     direction = direction.upper()
@@ -175,26 +191,28 @@ def turn(direction, angle):
         expected_bearing -= 360
     print(f"Current = {I2C()[3]}, Target = {expected_bearing}, Change = {angle}")
     if direction == "L":
-        ser.write(b"220,290\n")
+        ser.write(b"510,0\n")
         if I2C()[3] > expected_bearing:
-            while I2C()[3] > expected_bearing: pass
+             while I2C()[3] > expected_bearing: pass
         while I2C()[3] < expected_bearing: pass
         ser.write(b"255,255\n")
     else:
-        ser.write(b"290,220\n")
+        ser.write(b"0,510\n")
         if I2C()[3] < expected_bearing:
             while I2C()[3] < expected_bearing: pass
         while I2C()[3] > expected_bearing: pass
         ser.write(b"255,255\n")
     time.sleep(0.25)
-    return 
+    return
 
 def move(distance, t):
     cms = abs(distance) / t
     absan = CMS2AN(cms)
     print(absan)
-    if distance < 0: actual = int(255 - absan)
-    else: actual = int(255 + absan)
+    if distance < 0:
+        actual = int(255 - absan)
+    else:
+        actual = int(255 + absan)
     ser.write(f"{actual:03},{actual:03}\n".encode('utf-8'))
     time.sleep(t)
     ser.write(b"255,255\n")
@@ -206,8 +224,8 @@ def analyse_image(image):
     #   Adjust alpha, beta to taste
     #   Higher alpha -> stronger contrast, changed to reduce glare washout
     imagetemp = cv2.convertScaleAbs(image, alpha=1.5, beta=0.1)
-    removed = int(kr*imagetemp.shape[0])
-    img = imagetemp[int(kr*imagetemp.shape[0]):]
+    removed = int(kr * imagetemp.shape[0])
+    img = imagetemp[int(kr * imagetemp.shape[0]):]
     rows, cols, _ = img.shape
 
     # Additional morphological steps to remove small bright specks
@@ -221,12 +239,12 @@ def analyse_image(image):
 
     # Convert to grayscale and do morphological open to remove noise
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    bcx, bcy = 0,0
-    ret,btemplate = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
+    bcx, bcy = 0, 0
+    ret, btemplate = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
     # Morph open to remove noise, morph close to close up the line
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_OPEN, kernel)
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
-    ret,btemplate = cv2.threshold(btemplate, 128, 255, cv2.THRESH_BINARY_INV)
+    ret, btemplate = cv2.threshold(btemplate, 128, 255, cv2.THRESH_BINARY_INV)
     # Force edges to be white so they don't get picked
     for i in range(rows):
         for j in range(cols):
@@ -240,7 +258,7 @@ def analyse_image(image):
     for index in range(len(contours)):
         cnt = contours[index]
         if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 30000:
-            x,y,w,h = cv2.boundingRect(cnt)
+            x, y, w, h = cv2.boundingRect(cnt)
             if y + h > 0.75 * rows:
                 M = cv2.moments(cnt)
                 cX = int(M["m10"] / M["m00"])
@@ -249,7 +267,7 @@ def analyse_image(image):
                 cv2.circle(contourimg, (cX, cY), 7, (79, 127, 247, 255), -1)
                 centers.append([cY, cX])
                 weights.append(cY / rows)
-    try: 
+    try:
         weights.sort()
         centers.sort()
         k_weight = 1 / sum(weights)
@@ -259,12 +277,15 @@ def analyse_image(image):
             bcylist += centers[i][0] * modweights[i]
             bcc += 1
         bcx, bcy = int(bcxlist // bcc), int(bcylist // bcc)
-    except: bcx, bcy = int(cols // 2), int(rows // 2)
+    except:
+        bcx, bcy = int(cols // 2), int(rows // 2)
     try:
-        if len(centers) > 1: cv2.circle(contourimg, (bcx,bcy), (0, 0, 255, 255), -1)
-    except: pass
+        if len(centers) > 1:
+            cv2.circle(contourimg, (bcx, bcy), (0, 0, 255, 255), -1)
+    except:
+        pass
     to_return = ['black', bcx, bcy]
-    
+   
     #########################
     ### GET GREEN SQUARES ###
     #########################
@@ -272,10 +293,10 @@ def analyse_image(image):
     gtemplate = cv2.inRange(ghsvimg, GREEN_LOWER_THRESHOLD, GREEN_UPPER_THRESHOLD)
     gtemplate = cv2.morphologyEx(gtemplate, cv2.MORPH_OPEN, kernel)
     gtemplate = cv2.morphologyEx(gtemplate, cv2.MORPH_CLOSE, kernel)
-    ret,gtemplate = cv2.threshold(gtemplate, 128, 255, cv2.THRESH_BINARY_INV)
+    ret, gtemplate = cv2.threshold(gtemplate, 128, 255, cv2.THRESH_BINARY_INV)
     contours, hierarchy = cv2.findContours(gtemplate, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     green_squares = 0
-    gcs = [] 
+    gcs = []
     for contour in contours:
         area = cv2.contourArea(contour)
         if 900 < area < 3600:
@@ -304,10 +325,14 @@ def analyse_image(image):
                 if btemplate[y][gx] < 128:
                     bgy += y
                     bgyc += 1
-            try: bgx = bgx // bgxc
-            except: bgx = gx
-            try: bgy = bgy // bgyc
-            except: bgy = gy
+            try:
+                bgx = bgx // bgxc
+            except:
+                bgx = gx
+            try:
+                bgy = bgy // bgyc
+            except:
+                bgy = gy
             cv2.circle(contourimg, (gx, bgy), 7, (255, 0, 0, 255), -1)
             cv2.circle(contourimg, (bgx, gy), 7, (255, 0, 0, 255), -1)
             cv2.rectangle(contourimg, (min(gx, bgx), gy), (max(gx, bgx), gy), (255, 0, 0, 255), 5)
@@ -315,28 +340,29 @@ def analyse_image(image):
 
             if gy > bgy:
                 if gx > bgx:
-                    green_squares_present[3] = True # bottom right
-                    green_squares_coords[3] = [gx,gy]
+                    green_squares_present[3] = True  # bottom right
+                    green_squares_coords[3] = [gx, gy]
                 else:
-                    green_squares_present[2] = True # bottom left
-                    green_squares_coords[2] = [gx,gy]
+                    green_squares_present[2] = True  # bottom left
+                    green_squares_coords[2] = [gx, gy]
             else:
                 if gx > bgx:
-                    green_squares_present[0] = True # top right
-                    green_squares_coords[0] = [gx,gy]
+                    green_squares_present[0] = True  # top right
+                    green_squares_coords[0] = [gx, gy]
                 else:
-                    green_squares_present[1] = True # top left
-                    green_squares_coords[1] = [gx,gy]
+                    green_squares_present[1] = True  # top left
+                    green_squares_coords[1] = [gx, gy]
 
         # Replace these parts with forward and turn
         if green_squares_present[3] and green_squares_present[2]:
-            to_return = ['green', 'u', cols//2, (green_squares_coords[3][1] + green_squares_coords[2][1])//2]
+            to_return = ['green', 'u', cols // 2, (green_squares_coords[3][1] + green_squares_coords[2][1]) // 2]
         elif green_squares_present[3]:
             to_return = ['green', 'r', 0, green_squares_coords[3][1]]
         elif green_squares_present[2]:
             to_return = ['green', 'l', 0, green_squares_coords[2][1]]
-        else: to_return = ['black', cols//2, rows//2]
-    
+        else:
+            to_return = ['black', cols // 2, rows // 2]
+   
     ####################
     ### GET RED LINE ###
     ####################
@@ -346,7 +372,7 @@ def analyse_image(image):
     rtemplate = cv2.bitwise_or(mask1, mask2)
     rtemplate = cv2.morphologyEx(rtemplate, cv2.MORPH_OPEN, kernel)
     rtemplate = cv2.morphologyEx(rtemplate, cv2.MORPH_CLOSE, kernel)
-    ret,rtemplate = cv2.threshold(rtemplate, 128, 255, cv2.THRESH_BINARY)
+    ret, rtemplate = cv2.threshold(rtemplate, 128, 255, cv2.THRESH_BINARY)
     contours, hierarchy = cv2.findContours(rtemplate, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     for contour in contours:
         area = cv2.contourArea(contour)
@@ -372,7 +398,7 @@ while True:
         print("Obstacle detected!")
         print(f_dist)
         ser.write(b"255,255\n")
-        move(-8,1.5)
+        move(-8, 1.5)
         turn('r', 90)
         while True:
             move_until_detect('l')
@@ -381,10 +407,10 @@ while True:
             if check_for_line:
                 move_until_detect('l')
                 object_d = move_until_undetect('l')
-                move_speed(205, object_d/2)
-                move(-1 * (ROBOT_LENGTH/2), 2)
+                move_speed(205, object_d / 2)
+                move(-1 * (ROBOT_LENGTH / 2), 2)
                 turn('r', 90)
-                move(5,1)
+                move(5, 1)
                 break
     st = time.time()
     dt = st - prev_time
@@ -401,29 +427,33 @@ while True:
     elif data[0] == 'green' and started:
         ser.write(b"255,255\n")
         centroid = data[2:]
-        actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
-        move(actual_y_distance*1.3, actual_y_distance*1.3/5)
-        if data[1] == "u": turn('r', 180)
-        else: turn(data[1], 90)
+        actual_y_distance = 19.38859**(1 - (centroid[1] + kr * 194) / (rows + kr * 194)) + 3.92148
+        move(actual_y_distance * 1.3, actual_y_distance * 1.3 / 5)
+        if data[1] == "u":
+            turn('r', 180)
+        else:
+            turn(data[1], 90)
         move(5, 1)
     elif data[0] == 'black' and started:
         centroid = data[1:]
         print(centroid)
-        actual_y_distance = 19.38859**(1 - (centroid[1]+kr*194)/(rows + kr*194)) + 3.92148
+        actual_y_distance = 19.38859**(1 - (centroid[1] + kr * 194) / (rows + kr * 194)) + 3.92148
         max_x_error = actual_y_distance * 0.366399 + 2.25391
-        actual_x_distance = abs(centroid[0] - cols/2)/(cols/2) * max_x_error
-        actual_x_distance *= -1 if centroid[0] < cols/2 else 1
+        actual_x_distance = abs(centroid[0] - cols / 2) / (cols / 2) * max_x_error
+        actual_x_distance *= -1 if centroid[0] < cols / 2 else 1
         print(actual_x_distance, actual_y_distance)
         # MOVEMENT USING MATHEMATICS!!!
         # The robot is at point A, the point is at point B, it can ALWAYS arc from A to B
         # Should only be used if y_distance > x_distance for efficiency
         if actual_x_distance != 0:
+            """
             if actual_y_distance >= abs(actual_x_distance):
-                angleAB = abs(math.atan(actual_y_distance / actual_x_distance))
+                angleAB = math.atan(actual_y_distance / abs(actual_x_distance))
                 theta = math.pi / 2 - angleAB
                 r = (actual_x_distance**2 + actual_y_distance**2)**0.5 / (2 * math.sin(theta))
                 # Edge case: r = ROBOT_WIDTH / 2, means it's a pivot turn
-                # Adds a threshold just in case
+                # Adds a threshold just in cases
+               
                 if r - ROBOT_WIDTH / 2 <= 0.5:
                     if actual_x_distance > 0: ser.write(b"305,255\n")
                     else: ser.write(b"255,305\n")
@@ -438,23 +468,24 @@ while True:
                         inner_speed = 255/outer_speed * inner_speed
                         outer_speed == 255
                     if actual_x_distance > 0:
-                        ser.write(f"{int(outer_speed + 255)},{int(inner_speed + 255)}\n".encode("utf-8"))
-                    else:
                         ser.write(f"{int(inner_speed + 255)},{int(outer_speed + 255)}\n".encode("utf-8"))
+                    else:
+                        ser.write(f"{int(outer_speed + 255)},{int(inner_speed + 255)}\n".encode("utf-8"))
+               
             else:
-                #PID (i was too lazy to calibrate these)
-                error_x = -1 * actual_x_distance
-                d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
-                u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
-                prev_error = error_x
-                prev_time = st
-
-                base_speed = 50
-                motor_right_speed = base_speed - u
-                motor_left_speed = base_speed + u
-                motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
-                motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
-                ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
+            """
+            #PID (i was too lazy to calibrate these)
+            error_x = -1 * actual_x_distance
+            d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
+            u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
+            prev_error = error_x
+            prev_time = st
+            base_speed = BASE
+            motor_right_speed = base_speed - u
+            motor_left_speed = base_speed + u
+            motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
+            motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
+            ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
         else:
             ser.write(b"305,305\n")
     time.sleep(0.1)
