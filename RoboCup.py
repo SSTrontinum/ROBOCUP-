@@ -6,8 +6,6 @@ import VL53L0X, py_qmc5883l
 import numpy as np
 from libcamera import Transform, controls
 from picamera2 import Picamera2, Preview
-
-# BNO055 and PCA9548A imports
 import board, busio, adafruit_pca9548a, adafruit_bno055
 
 ####f###############
@@ -71,17 +69,18 @@ F_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 R_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 L_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 
+############
 ## BNO055 ##
-# Initialise I2C bus for multiplexer and sensor
+############
 i2c_bus = busio.I2C(board.SCL, board.SDA)
-# Initialise PCA9548A multiplexer
+
 pca = adafruit_pca9548a.PCA9548A(i2c_bus)
-# Select the multiplexer channel where the BNO055 is connected (adjust channel index as needed)
-bno_channel = pca.channels[0]
-# Initialise BNO055 sensor on the selected channel
+
+bno_channel = pca.channels[0]  # change the channel
+ 
 BNO055 = adafruit_bno055.BNO055_I2C(bno_channel)
 time.sleep(1)
-print("BNO055 initialised on PCA9548A channel 0.")
+print("BNO055 initialised")
 
 ## GYRO ##
 GYRO = py_qmc5883l.QMC5883L()
