@@ -389,6 +389,7 @@ while True:
     if pressed:
         if started: 
             started = False
+            ser.write(b"255,255\n")
             time.sleep(1)
         else: 
             started = True
