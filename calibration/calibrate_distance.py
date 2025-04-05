@@ -2,7 +2,7 @@ import serial, time
 ser = serial.Serial('/dev/serial0', 9600, timeout=1)
 ser.reset_input_buffer()
 ser.flush()
-ser.write(b"220,290\n")
+ser.write(b"315,315\n")
 #time.sleep(1)
 input()
 ser.write(b"255,255\n")

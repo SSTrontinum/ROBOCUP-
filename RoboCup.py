@@ -2,20 +2,21 @@
 ### IMPORTS ###
 ###############
 import cv2, serial, time, math
+from gpiozero import Button
 import VL53L0X, py_qmc5883l
 import numpy as np
 from libcamera import Transform, controls
 from picamera2 import Picamera2, Preview
-import board, busio, adafruit_pca9548a, adafruit_bno055
+import board, busio
 
 ####f###############
 ### CALIBRATION ###
 ###################
-GREEN_LOWER_THRESHOLD = (35, 35, 25)
-GREEN_UPPER_THRESHOLD = (80, 255, 255)
-RED_LOWER_THRESHOLD_1 = (0, 35, 25)
+GREEN_LOWER_THRESHOLD = (45, 100, 25)
+GREEN_UPPER_THRESHOLD = (80, 255, 100)
+RED_LOWER_THRESHOLD_1 = (5, 65, 230)
 RED_UPPER_THRESHOLD_1 = (15, 255, 255)
-RED_LOWER_THRESHOLD_2 = (175, 35, 25)
+RED_LOWER_THRESHOLD_2 = (5, 65, 230)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
 F_ERROR, R_ERROR, L_ERROR = 35, 53, 55
 GYRO_CALIBRATION = [[1.17476834930162, 0.018605719015194554, 1400.3312322052009], [0.01860571901519455, 1.0019807521296373, 3622.058744732488], [0.0, 0.0, 1.0]]
@@ -23,7 +24,7 @@ GYRO_DECLINATION = 0.19
 ROBOT_WIDTH = 11.4
 ROBOT_LENGTH = 15.0
 OBSTACLE_DISTANCE_SPOTTED_THRESHOLD = 50
-OBSTACLE_DETECTION_THRESHOLD = 40
+OBSTACLE_DETECTION_THRESHOLD = 30
 INNER = 55
 BASE = 100
 MAX_F_DIST = 200
@@ -35,9 +36,9 @@ MAX_S_DIST = 300
 ### GLOBAL VARIABLES ###
 ########################
 # PID config
-kp = 10
-ki = 0
-kd = 0
+kp = 2850
+ki = 360 # set to 0
+kd = kp*16 # should be 10 to 50 times larger than kp
 error_sum = 0
 prev_error = 0
 kr = 0.15
@@ -58,7 +59,7 @@ preview_config = picam2.create_preview_configuration({"size": (258, 194)}, trans
 picam2.configure(preview_config)
 picam2.start(show_preview=True)
 
-## TOF SENSORS ##
+## TOF SENSORS ###
 F_SENSOR = VL53L0X.VL53L0X(tca9548a_num=0, tca9548a_addr=0x70)
 R_SENSOR = VL53L0X.VL53L0X(tca9548a_num=1, tca9548a_addr=0x70)
 L_SENSOR = VL53L0X.VL53L0X(tca9548a_num=2, tca9548a_addr=0x70)
@@ -298,7 +299,7 @@ def analyse_image(image):
     gcs = []
     for contour in contours:
         area = cv2.contourArea(contour)
-        if 900 < area < 3600:
+        if 850 < area < 3750:
             M = cv2.moments(contour)
             cX = int(M["m10"] / M["m00"])
             cY = int(M["m01"] / M["m00"])
@@ -361,6 +362,8 @@ def analyse_image(image):
             to_return = ['green', 'l', 0, green_squares_coords[2][1]]
         else:
             to_return = ['black', cols // 2, rows // 2]
+    
+
    
     ####################
     ### GET RED LINE ###
@@ -391,6 +394,10 @@ def analyse_image(image):
 ######################
 ### MAIN GAME LOOP ###
 ######################
+while True:
+    f_dist = I2C()[1]
+    if f_dist < 10: break
+time.sleep(1)
 while True:
     f_dist = I2C()[0]
     if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
