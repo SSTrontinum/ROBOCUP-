@@ -388,10 +388,10 @@ while True:
     pressed = button.is_pressed
     if pressed:
         if started: 
-            started = True
+            started = False
             time.sleep(1)
         else: 
-            started = False
+            started = True
             time.sleep(1)
     f_dist = I2C()[0]
     if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
