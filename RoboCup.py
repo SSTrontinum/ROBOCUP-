@@ -43,7 +43,7 @@ error_sum = 0
 prev_error = 0
 kr = 0.15
 prev_time = time.time()
-started = True
+started = False
 
 ######################
 ### INITIALISATION ###
@@ -70,23 +70,13 @@ F_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 R_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 L_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 
-############
-## BNO055 ##
-############
-i2c_bus = busio.I2C(board.SCL, board.SDA)
-
-pca = adafruit_pca9548a.PCA9548A(i2c_bus)
-
-bno_channel = pca.channels[0]  # change the channel
- 
-BNO055 = adafruit_bno055.BNO055_I2C(bno_channel)
-time.sleep(1)
-print("BNO055 initialised")
-
 ## GYRO ##
 GYRO = py_qmc5883l.QMC5883L()
 GYRO.declination = GYRO_DECLINATION
 GYRO.calibration = GYRO_CALIBRATION
+
+## BUTTON ##
+button = Button(17)
 
 #################
 ### FUNCTIONS ###
@@ -395,10 +385,14 @@ def analyse_image(image):
 ### MAIN GAME LOOP ###
 ######################
 while True:
-    f_dist = I2C()[1]
-    if f_dist < 10: break
-time.sleep(1)
-while True:
+    pressed = button.is_pressed
+    if pressed:
+        if started: 
+            started = True
+            time.sleep(1)
+        else: 
+            started = False
+            time.sleep(1)
     f_dist = I2C()[0]
     if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
         print("Obstacle detected!")
@@ -428,8 +422,7 @@ while True:
             started = False
             break
         else:
-            move(10, 2)
-            started = True
+            ser.write(b"305,305\n")
     elif data[0] == 'green' and started:
         ser.write(b"255,255\n")
         centroid = data[2:]
@@ -448,39 +441,7 @@ while True:
         actual_x_distance = abs(centroid[0] - cols / 2) / (cols / 2) * max_x_error
         actual_x_distance *= -1 if centroid[0] < cols / 2 else 1
         print(actual_x_distance, actual_y_distance)
-        # MOVEMENT USING MATHEMATICS!!!
-        # The robot is at point A, the point is at point B, it can ALWAYS arc from A to B
-        # Should only be used if y_distance > x_distance for efficiency
         if actual_x_distance != 0:
-            """
-            if actual_y_distance >= abs(actual_x_distance):
-                angleAB = math.atan(actual_y_distance / abs(actual_x_distance))
-                theta = math.pi / 2 - angleAB
-                r = (actual_x_distance**2 + actual_y_distance**2)**0.5 / (2 * math.sin(theta))
-                # Edge case: r = ROBOT_WIDTH / 2, means it's a pivot turn
-                # Adds a threshold just in cases
-               
-                if r - ROBOT_WIDTH / 2 <= 0.5:
-                    if actual_x_distance > 0: ser.write(b"305,255\n")
-                    else: ser.write(b"255,305\n")
-                else:
-                    tracking_distance = 2 * r * theta
-                    outer_tracking_distance = 2 * (r + ROBOT_WIDTH / 2) * theta
-                    inner_tracking_distance = 2 * (r - ROBOT_WIDTH / 2) * theta
-                    if inner_tracking_distance > 0: inner_speed = INNER
-                    else: inner_speed = -1 * INNER
-                    outer_speed = inner_speed * outer_tracking_distance / inner_tracking_distance
-                    if outer_speed > 255:
-                        inner_speed = 255/outer_speed * inner_speed
-                        outer_speed == 255
-                    if actual_x_distance > 0:
-                        ser.write(f"{int(inner_speed + 255)},{int(outer_speed + 255)}\n".encode("utf-8"))
-                    else:
-                        ser.write(f"{int(outer_speed + 255)},{int(inner_speed + 255)}\n".encode("utf-8"))
-               
-            else:
-            """
-            #PID (i was too lazy to calibrate these)
             error_x = -1 * actual_x_distance
             d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
             u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
