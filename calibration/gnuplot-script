@@ -2,19 +2,19 @@
 #
 # The calibration matrix (affine transformation with offset to origin):
 #
-# [[ 1.17822861e+00  6.30173589e-02 -4.38488896e+02]
-#  [ 6.30173589e-02  1.02228143e+00  3.51932885e+03]
-#  [ 0.00000000e+00  0.00000000e+00  1.00000000e+00]]
+# [[1.17345905e+00 4.73251263e-02 2.21436429e+03]
+#  [4.73251263e-02 1.01291179e+00 4.10153688e+03]
+#  [0.00000000e+00 0.00000000e+00 1.00000000e+00]]
 #
 # The same matrix, as a Python array:
 #
-# sensor.calibration = [[1.178228607799537, 0.06301735887661293, -438.48889557609283], [0.0630173588766129, 1.0222814259103141, 3519.3288451579524], [0.0, 0.0, 1.0]]
+# sensor.calibration = [[1.1734590532408868, 0.04732512632887426, 2214.3642882299787], [0.04732512632887431, 1.012911794110473, 4101.536882585206], [0.0, 0.0, 1.0]]
 #
 # 
 #
-input_data = "magnet-data_20250402_1656.txt"
-set output "magnet-data_20250402_1656.png"
-circle_size = 13057 * 0.02
+input_data = "magnet-data_20250405_0857.txt"
+set output "magnet-data_20250405_0857.png"
+circle_size = 16323 * 0.02
 raw_data_color = "#28e828"
 ellipse_color = "#38a838"
 affine_offset_color = "#d0d0d0"
@@ -29,32 +29,32 @@ set title "QMC5883L Magnetic Sensor X-Y Plane Calibration"
 set size ratio 1
 set xzeroaxis
 set yzeroaxis
-set xrange [-13057:13057]
-set yrange [-13057:13057]
+set xrange [-16323:16323]
+set yrange [-16323:16323]
 set label 40 center at graph 0.5,char 1.5 \
-    "Ellipse center (x, y) = (558, -3477), Semi-axis (a, b) = (4065, 4880), Rotation = 19.5°"
+    "Ellipse center (x, y) = (-1726, -3968), Semi-axis (a, b) = (5708, 6772), Rotation = 15.3°"
 set bmargin 5
-set object 20 ellipse center 558.13,-3477.03 size 8130.58,9760.85 angle 19.47 \
+set object 20 ellipse center -1726.99,-3968.57 size 11417.04,13544.84 angle 15.26 \
     front fillstyle empty border lc rgb ellipse_color lw 3
-set object 10 circle center 558.13,-3477.03 size 4880.42 \
+set object 10 circle center -1726.99,-3968.57 size 6772.42 \
     front fillstyle empty border lc rgb affine_offset_color lw 3
-set object 30 circle center 0,0 size 4880.42 \
+set object 30 circle center 0,0 size 6772.42 \
     front fillstyle empty border lc rgb affine_centered_color lw 3
 plot input_data using 1:2:(circle_size) with circles linestyle 100 \
         title "Raw Data", \
-    "<echo '558.13 -3477.03 4390.89 -2121.85\n558.13 -3477.03 -1068.77 1124.25'" \
+    "<echo '-1726.99 -3968.57 3780.24 -2466.02\n-1726.99 -3968.57 -3509.57 2565.05'" \
         using 1:2:($3-$1):($4-$2) with vectors nohead linestyle 300 \
         title "Best Fit Ellipse", \
-    "<echo '558.13 -3477.03 1494.78 1042.03\n558.13 -3477.03 1946.50 1201.75'" \
+    "<echo '-1726.99 -3968.57 67.94 2200.41\n-1726.99 -3968.57 671.24 2365.01'" \
         using 1:2:($3-$1):($4-$2) with vectors nohead linestyle 400 \
         title "Affine Transformation from Ellipse to Circle", \
-    "<echo '1494.78 1042.03\n1946.50 1201.75'" \
+    "<echo '67.94 2200.41\n671.24 2365.01'" \
         using 1:2:(circle_size) with circles linestyle 400 \
         title "Transformation: Example Point", \
-    "<echo '0 0 1388.37 4678.78'" \
+    "<echo '0 0 2398.23 6333.58'" \
         using 1:2:($3-$1):($4-$2) with vectors nohead linestyle 500 \
         title "Transformation Circle: Offset to Origin", \
-    "<echo '1388.37 4678.78'" \
+    "<echo '2398.23 6333.58'" \
         using 1:2:(circle_size) with circles linestyle 500 \
         title "Example Point: Offset to Origin"
 
