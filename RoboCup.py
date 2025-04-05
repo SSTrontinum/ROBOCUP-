@@ -35,7 +35,7 @@ MAX_S_DIST = 300
 ### GLOBAL VARIABLES ###
 ########################
 # PID config
-kp = 2850
+kp = 2950
 ki = 360 # set to 0
 kd = kp*16 # should be 10 to 50 times larger than kp
 error_sum = 0
