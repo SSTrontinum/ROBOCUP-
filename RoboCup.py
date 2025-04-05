@@ -35,7 +35,7 @@ MAX_S_DIST = 300
 ### GLOBAL VARIABLES ###
 ########################
 # PID config
-kp = 2950
+kp = 2850
 ki = 360 # set to 0
 kd = kp*16 # should be 10 to 50 times larger than kp
 error_sum = 0
@@ -226,7 +226,7 @@ def analyse_image(image):
     # Convert to grayscale and do morphological open to remove noise
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     bcx, bcy = 0, 0
-    ret, btemplate = cv2.threshold(gray, 75, 255, cv2.THRESH_BINARY_INV)
+    ret, btemplate = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
     # Morph open to remove noise, morph close to close up the line
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_OPEN, kernel)
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
@@ -243,7 +243,7 @@ def analyse_image(image):
     centers, weights = [], []
     for index in range(len(contours)):
         cnt = contours[index]
-        if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 30000:
+        if cv2.contourArea(cnt) > 100 and cv2.contourArea(cnt) < 20000:
             x, y, w, h = cv2.boundingRect(cnt)
             if y + h > 0.75 * rows:
                 M = cv2.moments(cnt)
