@@ -385,6 +385,7 @@ def analyse_image(image):
 ### MAIN GAME LOOP ###
 ######################
 while True:
+    """
     pressed = button.is_pressed
     if pressed:
         if started: 
@@ -394,6 +395,7 @@ while True:
         else: 
             started = True
             time.sleep(1)
+    """
     f_dist = I2C()[0]
     if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
         print("Obstacle detected!")
