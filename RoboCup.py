@@ -179,7 +179,7 @@ def turn(direction, angle):
     if direction == "L":
         ser.write(b"510,0\n")
         if I2C()[3] > expected_bearing:
-             while I2C()[3] > expected_bearing: pass
+            while I2C()[3] > expected_bearing: pass
         while I2C()[3] < expected_bearing: pass
         ser.write(b"255,255\n")
     else:
@@ -226,7 +226,7 @@ def analyse_image(image):
     # Convert to grayscale and do morphological open to remove noise
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     bcx, bcy = 0, 0
-    ret, btemplate = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
+    ret, btemplate = cv2.threshold(gray, 75, 255, cv2.THRESH_BINARY_INV)
     # Morph open to remove noise, morph close to close up the line
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_OPEN, kernel)
     btemplate = cv2.morphologyEx(btemplate, cv2.MORPH_CLOSE, kernel)
