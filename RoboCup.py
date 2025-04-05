@@ -1,7 +1,7 @@
 ###############
 ### IMPORTS ###
 ###############
-import cv2, serial, time, math
+import cv2, serial, time, math, sys
 import VL53L0X, py_qmc5883l
 from gpiozero import Button
 import numpy as np
@@ -55,9 +55,14 @@ ser.flush()
 
 ## CAMERA ##
 picam2 = Picamera2()
+
 preview_config = picam2.create_preview_configuration({"size": (258, 194)}, transform=Transform(hflip=True, vflip=True))
 picam2.configure(preview_config)
-picam2.start(show_preview=True)
+
+if '-n' in sys.argv:
+    picam2.start(Preview.QTGL)
+else:
+    picam2.start(show_preview=True)
 
 ## TOF SENSORS ###
 F_SENSOR = VL53L0X.VL53L0X(tca9548a_num=0, tca9548a_addr=0x70)
@@ -167,6 +172,7 @@ def check_for_line():
     return False
 
 def cv2_imshow(winname, img, x, y):
+    if '-n' in sys.argv: return
     cv2.namedWindow(winname)  
     cv2.moveWindow(winname, x, y)
     cv2.imshow(winname, img)
