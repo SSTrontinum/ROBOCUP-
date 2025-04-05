@@ -2,7 +2,6 @@
 ### IMPORTS ###
 ###############
 import cv2, serial, time, math
-from gpiozero import Button
 import VL53L0X, py_qmc5883l
 import numpy as np
 from libcamera import Transform, controls
@@ -12,13 +11,13 @@ import board, busio
 ####f###############
 ### CALIBRATION ###
 ###################
-GREEN_LOWER_THRESHOLD = (45, 100, 25)
-GREEN_UPPER_THRESHOLD = (80, 255, 100)
-RED_LOWER_THRESHOLD_1 = (5, 65, 230)
-RED_UPPER_THRESHOLD_1 = (15, 255, 255)
-RED_LOWER_THRESHOLD_2 = (5, 65, 230)
+GREEN_LOWER_THRESHOLD = (45, 100, 75)
+GREEN_UPPER_THRESHOLD = (80, 255, 255)
+RED_LOWER_THRESHOLD_1 = (0, 65, 75)
+RED_UPPER_THRESHOLD_1 = (10, 255, 255)
+RED_LOWER_THRESHOLD_2 = (5, 65, 75)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
-F_ERROR, R_ERROR, L_ERROR = 35, 53, 55
+F_ERROR, R_ERROR, L_ERROR = -1, 53, 51
 GYRO_CALIBRATION = [[1.1734590532408868, 0.04732512632887426, 2214.3642882299787], [0.04732512632887431, 1.012911794110473, 4101.536882585206], [0.0, 0.0, 1.0]]
 GYRO_DECLINATION = 0.19
 ROBOT_WIDTH = 11.4
@@ -43,7 +42,7 @@ error_sum = 0
 prev_error = 0
 kr = 0.15
 prev_time = time.time()
-started = False
+started = True
 
 ######################
 ### INITIALISATION ###
@@ -74,9 +73,6 @@ L_SENSOR.start_ranging(VL53L0X.Vl53l0xAccuracyMode.BETTER)
 GYRO = py_qmc5883l.QMC5883L()
 GYRO.declination = GYRO_DECLINATION
 GYRO.calibration = GYRO_CALIBRATION
-
-## BUTTON ##
-button = Button(17)
 
 #################
 ### FUNCTIONS ###
@@ -385,17 +381,6 @@ def analyse_image(image):
 ### MAIN GAME LOOP ###
 ######################
 while True:
-    """
-    pressed = button.is_pressed
-    if pressed:
-        if started: 
-            started = False
-            ser.write(b"255,255\n")
-            time.sleep(1)
-        else: 
-            started = True
-            time.sleep(1)
-    """
     f_dist = I2C()[0]
     if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
         print("Obstacle detected!")
