@@ -1,12 +1,11 @@
 from gpiozero import Button
-import os, time
+import os, time, serial
 button = Button(17)
-started = False
 while True:
         if button.is_pressed:
-                if started == False:
-                        os.system('python3 ./RoboCup.py')
-                else: 
-                        os.system('pkill -f "RoboCup.py"')
-                        started = False
+                print("starting")
+                ser = serial.Serial('/dev/serial0', 9600, timeout=1)
+                ser.reset_input_buffer()
+                ser.flush()
+                os.system('python3 RoboCup.py')
                 time.sleep(1)

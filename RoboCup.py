@@ -3,6 +3,7 @@
 ###############
 import cv2, serial, time, math
 import VL53L0X, py_qmc5883l
+from gpiozero import Button
 import numpy as np
 from libcamera import Transform, controls
 from picamera2 import Picamera2, Preview
@@ -14,8 +15,8 @@ import board, busio
 GREEN_LOWER_THRESHOLD = (45, 100, 75)
 GREEN_UPPER_THRESHOLD = (80, 255, 255)
 RED_LOWER_THRESHOLD_1 = (0, 65, 75)
-RED_UPPER_THRESHOLD_1 = (10, 255, 255)
-RED_LOWER_THRESHOLD_2 = (5, 65, 75)
+RED_UPPER_THRESHOLD_1 = (5, 255, 255)
+RED_LOWER_THRESHOLD_2 = (175, 65, 75)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
 F_ERROR, R_ERROR, L_ERROR = -1, 53, 51
 GYRO_CALIBRATION = [[1.1734590532408868, 0.04732512632887426, 2214.3642882299787], [0.04732512632887431, 1.012911794110473, 4101.536882585206], [0.0, 0.0, 1.0]]
@@ -25,7 +26,7 @@ ROBOT_LENGTH = 15.0
 OBSTACLE_DISTANCE_SPOTTED_THRESHOLD = 50
 OBSTACLE_DETECTION_THRESHOLD = 30
 INNER = 55
-BASE = 100
+BASE = 50
 MAX_F_DIST = 200
 MAX_S_DIST = 300
 # wheel diameter = 53.25 mm
@@ -35,9 +36,9 @@ MAX_S_DIST = 300
 ### GLOBAL VARIABLES ###
 ########################
 # PID config
-kp = 2850
-ki = 360 # set to 0
-kd = kp*16 # should be 10 to 50 times larger than kp
+kp = 20
+ki = 0 # set to 0
+kd = 5 # should be 10 to 50 times larger than kp
 error_sum = 0
 prev_error = 0
 kr = 0.15
@@ -74,6 +75,9 @@ GYRO = py_qmc5883l.QMC5883L()
 GYRO.declination = GYRO_DECLINATION
 GYRO.calibration = GYRO_CALIBRATION
 
+## Button ##
+button = Button(27)
+
 #################
 ### FUNCTIONS ###
 #################
@@ -81,17 +85,19 @@ def CMS2AN(cms_speed):
     return 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
 
 def I2C():
-    data = [0, 0, 0, 0]
-    data[0] = min(MAX_F_DIST, F_SENSOR.get_distance() - F_ERROR)
-    data[1] = min(MAX_S_DIST, R_SENSOR.get_distance() - R_ERROR)
-    data[2] = min(MAX_S_DIST, L_SENSOR.get_distance() - L_ERROR)
-    data[3] = GYRO.get_bearing()
-    new_f = F_SENSOR.get_distance() - F_ERROR
-    if abs(new_f - data[0]) > 10:
-        data[0] = -1 # Invalid
-    else:
-        data[0] = (new_f + data[0]) / 2
-    return data
+    try:
+        data = [0, 0, 0, 0]
+        data[0] = min(MAX_F_DIST, F_SENSOR.get_distance() - F_ERROR)
+        data[1] = min(MAX_S_DIST, R_SENSOR.get_distance() - R_ERROR)
+        data[2] = min(MAX_S_DIST, L_SENSOR.get_distance() - L_ERROR)
+        data[3] = GYRO.get_bearing()
+        new_f = F_SENSOR.get_distance() - F_ERROR
+        if abs(new_f - data[0]) > 10:
+            data[0] = -1 # Invalid
+        else:
+            data[0] = (new_f + data[0]) / 2
+        return data
+    except: return [MAX_F_DIST, MAX_S_DIST, MAX_S_DIST, 90]
 
 def move_until_detect(side):
     if side == 'r':
@@ -177,17 +183,30 @@ def turn(direction, angle):
         expected_bearing -= 360
     print(f"Current = {I2C()[3]}, Target = {expected_bearing}, Change = {angle}")
     if direction == "L":
-        ser.write(b"510,0\n")
+        ser.write(b"455,55\n")
         if I2C()[3] > expected_bearing:
             while I2C()[3] > expected_bearing: pass
         while I2C()[3] < expected_bearing: pass
         ser.write(b"255,255\n")
     else:
-        ser.write(b"0,510\n")
+        ser.write(b"55,455\n")
         if I2C()[3] < expected_bearing:
             while I2C()[3] < expected_bearing: pass
         while I2C()[3] > expected_bearing: pass
         ser.write(b"255,255\n")
+    if abs(I2C()[3] - expected_bearing) > 10:
+        if direction == "L":
+            ser.write(b"185,325\n")
+            if I2C()[3] < expected_bearing:
+                while I2C()[3] < expected_bearing: pass
+            while I2C()[3] > (expected_bearing - 1): pass
+            ser.write(b"255,255\n")
+        else:
+            ser.write(b"325,185\n")
+            if I2C()[3] > expected_bearing:
+                while I2C()[3] > expected_bearing: pass
+            while I2C()[3] < (expected_bearing + 1): pass
+            ser.write(b"255,255\n")
     time.sleep(0.25)
     return
 
@@ -195,6 +214,7 @@ def move(distance, t):
     cms = abs(distance) / t
     absan = CMS2AN(cms)
     print(absan)
+    absan = distance/t * 10
     if distance < 0:
         actual = int(255 - absan)
     else:
@@ -381,6 +401,10 @@ def analyse_image(image):
 ### MAIN GAME LOOP ###
 ######################
 while True:
+    if button.is_pressed:
+        print("interrupt")
+        ser.write(b"255,255\n")
+        exit()
     f_dist = I2C()[0]
     if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
         print("Obstacle detected!")
@@ -429,20 +453,20 @@ while True:
         actual_x_distance = abs(centroid[0] - cols / 2) / (cols / 2) * max_x_error
         actual_x_distance *= -1 if centroid[0] < cols / 2 else 1
         print(actual_x_distance, actual_y_distance)
-        if actual_x_distance != 0:
-            error_x = -1 * actual_x_distance
-            d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
-            u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
-            prev_error = error_x
-            prev_time = st
-            base_speed = BASE
-            motor_right_speed = base_speed - u
-            motor_left_speed = base_speed + u
-            motor_left_speed = int(max(0, min(255, motor_left_speed))) + 255
-            motor_right_speed = int(max(0, min(255, motor_right_speed))) + 255
-            ser.write(f"{motor_left_speed},{motor_right_speed}\n".encode("utf-8"))
-        else:
-            ser.write(b"305,305\n")
+        error_x = -1 * actual_x_distance
+        d_error = (error_x - prev_error) / dt if dt > 0 else 0.0
+        u = (kp * error_x) + (ki * error_sum) + (kd * d_error)
+        prev_error = error_x
+        prev_time = st
+        base_speed = BASE
+        motor_right_speed = base_speed - u
+        motor_left_speed = base_speed + u
+        motor_left_speed = min(255, max(motor_left_speed, -255))
+        motor_right_speed = min(255, max(motor_right_speed, -255))
+        motor_left_speed += 255
+        motor_right_speed += 255
+        print(f"Damn = {int(motor_left_speed)},{int(motor_right_speed)}\n")
+        ser.write(f"{int(motor_left_speed)},{int(motor_right_speed)}\n".encode("utf-8"))
     time.sleep(0.1)
 
 # Clean up: move forward for a set distance
