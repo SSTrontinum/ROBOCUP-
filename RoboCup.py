@@ -189,13 +189,13 @@ def turn(direction, angle):
         expected_bearing -= 360
     print(f"Current = {I2C()[3]}, Target = {expected_bearing}, Change = {angle}")
     if direction == "L":
-        ser.write(b"455,55\n")
+        ser.write(b"405,105\n")
         if I2C()[3] > expected_bearing:
             while I2C()[3] > expected_bearing: pass
         while I2C()[3] < expected_bearing: pass
         ser.write(b"255,255\n")
     else:
-        ser.write(b"55,455\n")
+        ser.write(b"105,405\n")
         if I2C()[3] < expected_bearing:
             while I2C()[3] < expected_bearing: pass
         while I2C()[3] > expected_bearing: pass
@@ -220,7 +220,7 @@ def move(distance, t):
     cms = abs(distance) / t
     absan = CMS2AN(cms)
     print(absan)
-    absan = distance/t * 10
+    #absan = distance/t * 10
     if distance < 0:
         actual = int(255 - absan)
     else:
