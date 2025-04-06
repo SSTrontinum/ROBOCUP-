@@ -18,8 +18,8 @@ RED_LOWER_THRESHOLD_1 = (0, 65, 75)
 RED_UPPER_THRESHOLD_1 = (5, 255, 255)
 RED_LOWER_THRESHOLD_2 = (175, 65, 75)
 RED_UPPER_THRESHOLD_2 = (180, 255, 255)
-F_ERROR, R_ERROR, L_ERROR = -1, 53, 51
-GYRO_CALIBRATION = [[1.1734590532408868, 0.04732512632887426, 2214.3642882299787], [0.04732512632887431, 1.012911794110473, 4101.536882585206], [0.0, 0.0, 1.0]]
+F_ERROR, R_ERROR, L_ERROR = 53, 53, 51
+GYRO_CALIBRATION = [[1.1493090658276388, 0.0578191792606054, 1762.721377133933], [0.05781917926060539, 1.0223901842251777, 4020.49202036733], [0.0, 0.0, 1.0]]
 GYRO_DECLINATION = 0.19
 ROBOT_WIDTH = 11.4
 ROBOT_LENGTH = 15.0
@@ -87,7 +87,7 @@ button = Button(27)
 ### FUNCTIONS ###
 #################
 def CMS2AN(cms_speed):
-    return 0.000296378 * cms_speed**5 - 0.0156624 * cms_speed**4 + 0.303438 * cms_speed**3 - 2.3577 * cms_speed**2 + 8.83765 * cms_speed + 19.42041
+    return 0.0000188282 * cms_speed**5 + 0.000671011 * cms_speed**4 - 0.0208513 * cms_speed**3 + 0.137149 * cms_speed**2 + 3.51129 * cms_speed + 19.19012
 
 def I2C():
     try:
@@ -189,29 +189,29 @@ def turn(direction, angle):
         expected_bearing -= 360
     print(f"Current = {I2C()[3]}, Target = {expected_bearing}, Change = {angle}")
     if direction == "L":
-        ser.write(b"405,105\n")
+        ser.write(b"155,355\n")
         if I2C()[3] > expected_bearing:
             while I2C()[3] > expected_bearing: pass
         while I2C()[3] < expected_bearing: pass
         ser.write(b"255,255\n")
     else:
-        ser.write(b"105,405\n")
+        ser.write(b"355,155\n")
         if I2C()[3] < expected_bearing:
             while I2C()[3] < expected_bearing: pass
         while I2C()[3] > expected_bearing: pass
         ser.write(b"255,255\n")
     if abs(I2C()[3] - expected_bearing) > 10:
         if direction == "L":
-            ser.write(b"185,325\n")
+            ser.write(b"325,185\n")
             if I2C()[3] < expected_bearing:
                 while I2C()[3] < expected_bearing: pass
-            while I2C()[3] > (expected_bearing - 1): pass
+            while I2C()[3] > (expected_bearing - 5): pass
             ser.write(b"255,255\n")
         else:
-            ser.write(b"325,185\n")
+            ser.write(b"185,325\n")
             if I2C()[3] > expected_bearing:
                 while I2C()[3] > expected_bearing: pass
-            while I2C()[3] < (expected_bearing + 1): pass
+            while I2C()[3] < (expected_bearing + 5): pass
             ser.write(b"255,255\n")
     time.sleep(0.25)
     return
@@ -411,6 +411,7 @@ while True:
         print("interrupt")
         ser.write(b"255,255\n")
         exit()
+    """
     f_dist = I2C()[0]
     if f_dist < OBSTACLE_DETECTION_THRESHOLD and started and f_dist > 0:
         print("Obstacle detected!")
@@ -430,6 +431,7 @@ while True:
                 turn('r', 90)
                 move(5, 1)
                 break
+    """
     st = time.time()
     dt = st - prev_time
     data, rows, cols = analyse_image(picam2.capture_array())
@@ -445,12 +447,11 @@ while True:
         ser.write(b"255,255\n")
         centroid = data[2:]
         actual_y_distance = 19.38859**(1 - (centroid[1] + kr * 194) / (rows + kr * 194)) + 3.92148
-        move(actual_y_distance * 1.3, actual_y_distance * 1.3 / 5)
+        move(actual_y_distance * 1.5, actual_y_distance * 1.5 / 5)
         if data[1] == "u":
             turn('r', 180)
         else:
             turn(data[1], 90)
-        move(5, 1)
     elif data[0] == 'black' and started:
         centroid = data[1:]
         print(centroid)
@@ -465,8 +466,8 @@ while True:
         prev_error = error_x
         prev_time = st
         base_speed = BASE
-        motor_right_speed = base_speed - u
-        motor_left_speed = base_speed + u
+        motor_right_speed = base_speed + u
+        motor_left_speed = base_speed - u
         motor_left_speed = min(255, max(motor_left_speed, -255))
         motor_right_speed = min(255, max(motor_right_speed, -255))
         motor_left_speed += 255
